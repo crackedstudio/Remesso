@@ -1,0 +1,35 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+# contracts/lib/ is NOT ignored: forge install registers deps as git
+# submodules, so they belong in the tree for reproducible builds.
+
+# node / deno
+node_modules/
+.DS_Store
+
+# next.js
+web/.next/
+web/out/
+web/next-env.d.ts
+web/tsconfig.tsbuildinfo
+.env.local
+.env.local.*
+!web/.env.local.example
+
+# editor
+.vscode/
+
+# audit tooling scratch: per-agent bundles and a flattened source dump,
+# regenerated on every run and not source of truth for anything.
+.audit-*/
+
+# supabase
+supabase/.branches/
+supabase/.temp/
