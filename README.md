@@ -275,6 +275,22 @@ does a live key against the SSH key you uploaded for test.
    `No Test SSH Key found`, and nothing the API returns is readable.
    → `CNGN_SSH_PRIVATE_KEY` (the private half; escaped `\n` is fine)
 
+   **Take the default of no passphrase.** cNGN's guide offers one, but the
+   executor runs unattended and has nothing to prompt with — a passphrase
+   encrypts the key body and the private key cannot be loaded at all. If you
+   already set one, strip it; the public key is unchanged, so the dashboard
+   needs no update:
+
+   ```bash
+   ssh-keygen -p -N "" -f cngn_api_key
+   ```
+
+   The four ways this goes wrong — passphrase, the `.pub` file pasted instead
+   of the private half, an RSA key, and a truncated paste — each fail with a
+   message naming the actual problem rather than a generic parse error. They
+   are covered in `cngn.test.ts`, because the failure they'd otherwise produce
+   is an unexplained key mismatch hours later.
+
 4. **Permissions.** An organisation admin grants these per key. Remesso needs
    **Redeem**. Without it `redeemAsset` returns `{"status": false, "message":
    "Permission denied"}` — note that shape: the HTTP status is not the whole

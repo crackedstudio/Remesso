@@ -148,6 +148,60 @@ Deno.test("cNGN crypto", async (t) => {
     await assertRejects(() => cngn.decryptData(Buffer.from("short").toString("base64")));
   });
 
+  await t.step("a passphrase-protected key is named as such", async () => {
+    // The docs offer a passphrase as an option. It cannot work here — this runs
+    // unattended with nothing to prompt — and the failure must say so, because
+    // the generic "not an Ed25519 key" message sends people off to regenerate a
+    // key that was fine.
+    const dir2 = await Deno.makeTempDir();
+    const cmd = new Deno.Command("ssh-keygen", {
+      args: ["-t", "ed25519", "-C", "locked@test", "-f", `${dir2}/locked`, "-N", "hunter2", "-q"],
+      stdout: "null",
+      stderr: "null",
+    });
+    await cmd.output();
+    Deno.env.set("CNGN_SSH_PRIVATE_KEY", await Deno.readTextFile(`${dir2}/locked`));
+    const locked = await loadFresh();
+    await assertRejects(
+      () => locked.decryptData(sealLikeCngn(publicLine, "{}")),
+      Error,
+      "passphrase-protected",
+    );
+    Deno.env.set("CNGN_SSH_PRIVATE_KEY", privateKey);
+    await Deno.remove(dir2, { recursive: true });
+  });
+
+  await t.step("a public key pasted by mistake is named as such", async () => {
+    // The likeliest paste error of all: .pub instead of the private half.
+    Deno.env.set("CNGN_SSH_PRIVATE_KEY", publicLine);
+    const wrong = await loadFresh();
+    await assertRejects(
+      () => wrong.decryptData(sealLikeCngn(publicLine, "{}")),
+      Error,
+      "holds a PUBLIC key",
+    );
+    Deno.env.set("CNGN_SSH_PRIVATE_KEY", privateKey);
+  });
+
+  await t.step("an RSA key is rejected with Ed25519 named", async () => {
+    const dir3 = await Deno.makeTempDir();
+    const cmd = new Deno.Command("ssh-keygen", {
+      args: ["-t", "rsa", "-b", "2048", "-C", "rsa@test", "-f", `${dir3}/rsa`, "-N", "", "-q"],
+      stdout: "null",
+      stderr: "null",
+    });
+    await cmd.output();
+    Deno.env.set("CNGN_SSH_PRIVATE_KEY", await Deno.readTextFile(`${dir3}/rsa`));
+    const rsa = await loadFresh();
+    await assertRejects(
+      () => rsa.decryptData(sealLikeCngn(publicLine, "{}")),
+      Error,
+      "Ed25519",
+    );
+    Deno.env.set("CNGN_SSH_PRIVATE_KEY", privateKey);
+    await Deno.remove(dir3, { recursive: true });
+  });
+
   await t.step("a non-Ed25519 private key fails loudly at parse time", async () => {
     // Guards the one error a deployment is most likely to make: pasting an RSA
     // key, or a public key, into CNGN_SSH_PRIVATE_KEY.
@@ -159,7 +213,7 @@ Deno.test("cNGN crypto", async (t) => {
     await assertRejects(
       () => fresh.decryptData(sealLikeCngn(publicLine, "{}")),
       Error,
-      "OpenSSH Ed25519",
+      "not an OpenSSH private key",
     );
     Deno.env.set("CNGN_SSH_PRIVATE_KEY", privateKey);
   });

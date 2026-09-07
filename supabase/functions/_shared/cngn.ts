@@ -92,22 +92,81 @@ function findBytes(haystack: Uint8Array, needle: number[]): number {
   return -1;
 }
 
+const OPENSSH_MAGIC = "openssh-key-v1\0";
+
 /// Pull the 64-byte Ed25519 secret key out of an OpenSSH-format private key.
 ///
-/// OpenSSH frames the key material with a 4-byte big-endian length, and for
-/// Ed25519 that length is always 0x40. Locating the marker is how the official
-/// SDKs do it, and it avoids parsing the whole container format.
+/// The key material is framed with a 4-byte big-endian length, and for Ed25519
+/// that length is always 0x40. Locating that marker is how the official SDKs do
+/// it, and it avoids implementing the whole container format.
+///
+/// The container header IS checked first, though, because the marker search is
+/// only meaningful on a plaintext body. A passphrase-protected key encrypts
+/// everything after the header, and searching ciphertext for four bytes either
+/// finds nothing — reported as "not an Ed25519 key", which is wrong and sends
+/// people off to regenerate a perfectly good key — or worse, matches by
+/// coincidence and loads 64 bytes of garbage that fails much later as an
+/// unexplained key mismatch.
 function parseOpenSSHPrivateKey(pem: string): Uint8Array {
   const body = pem
     .replace(/\\n/g, "\n")               // survives being stored in an env var
     .replace(/-----[A-Z ]*PRIVATE KEY-----/g, "")
     .trim();
-  const buf = b64decode(body);
-  const start = findBytes(buf, [0x00, 0x00, 0x00, 0x40]);
-  if (start === -1) {
+  if (!body) throw new Error("CNGN_SSH_PRIVATE_KEY is empty");
+
+  // An OpenSSH *public* key is a single "ssh-ed25519 AAAA... comment" line.
+  // Caught by shape, because it is not valid base64 either and would otherwise
+  // surface as an opaque decoding error rather than the actual mistake.
+  if (/^(ssh-(ed25519|rsa|dss)|ecdsa-sha2-)/.test(body)) {
     throw new Error(
-      "CNGN_SSH_PRIVATE_KEY is not an OpenSSH Ed25519 key " +
-        "(generate with: ssh-keygen -t ed25519 -C api@remesso)",
+      "CNGN_SSH_PRIVATE_KEY holds a PUBLIC key. The .pub file goes in the " +
+        "dashboard; this variable takes the private half — the file with no " +
+        ".pub extension, starting -----BEGIN OPENSSH PRIVATE KEY-----.",
+    );
+  }
+
+  let buf: Uint8Array;
+  try {
+    buf = b64decode(body);
+  } catch {
+    throw new Error(
+      "CNGN_SSH_PRIVATE_KEY is not valid base64. Paste the whole private key " +
+        "file including its BEGIN and END lines.",
+    );
+  }
+
+  const magic = new TextDecoder().decode(buf.subarray(0, OPENSSH_MAGIC.length));
+  if (magic !== OPENSSH_MAGIC) {
+    throw new Error(
+      "CNGN_SSH_PRIVATE_KEY is not an OpenSSH private key. It must be the " +
+        "PRIVATE half (the file with no .pub extension), generated with: " +
+        "ssh-keygen -t ed25519 -C api@remesso -f cngn_api_key",
+    );
+  }
+
+  // Immediately after the magic: a 4-byte big-endian length, then the cipher
+  // name. "none" for an unencrypted key, "aes256-ctr" for a passphrase.
+  let at = OPENSSH_MAGIC.length;
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const cipherLen = view.getUint32(at);
+  at += 4;
+  const cipherName = new TextDecoder().decode(buf.subarray(at, at + cipherLen));
+
+  if (cipherName !== "none") {
+    throw new Error(
+      `CNGN_SSH_PRIVATE_KEY is passphrase-protected (${cipherName}). This runs ` +
+        "unattended and has no way to prompt for one. Strip the passphrase with: " +
+        'ssh-keygen -p -N "" -f cngn_api_key — the public key is unchanged, so ' +
+        "the dashboard needs no update.",
+    );
+  }
+
+  const start = findBytes(buf, [0x00, 0x00, 0x00, 0x40]);
+  if (start === -1 || start + 68 > buf.length) {
+    throw new Error(
+      "CNGN_SSH_PRIVATE_KEY has no Ed25519 key material. cNGN requires an " +
+        "Ed25519 key; RSA and ECDSA keys will not work. Generate one with: " +
+        "ssh-keygen -t ed25519 -C api@remesso -f cngn_api_key",
     );
   }
   return buf.subarray(start + 4, start + 68);
