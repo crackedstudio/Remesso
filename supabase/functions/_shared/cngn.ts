@@ -184,6 +184,25 @@ function curve25519SecretKey(): Promise<Uint8Array> {
   return curveKeyPromise;
 }
 
+/// The Ed25519 public half of CNGN_SSH_PRIVATE_KEY, as an OpenSSH line.
+///
+/// Exists so a preflight can show what the dashboard's SSH field *should*
+/// contain. A key that parses locally still fails every request if the
+/// dashboard holds a different one, and that mismatch is otherwise only
+/// visible as "decryption failed" against a live API call.
+export async function ed25519PublicKeyLine(): Promise<string> {
+  await sodium.ready;
+  const sk = parseOpenSSHPrivateKey(CNGN_API.sshPrivateKey);
+  const pk = sk.subarray(32); // OpenSSH stores seed || public key
+  const wire = new Uint8Array(4 + 11 + 4 + 32);
+  const view = new DataView(wire.buffer);
+  view.setUint32(0, 11);
+  wire.set(new TextEncoder().encode("ssh-ed25519"), 4);
+  view.setUint32(15, 32);
+  wire.set(pk, 19);
+  return `ssh-ed25519 ${b64encode(wire)}`;
+}
+
 export async function decryptData<T>(encrypted: string): Promise<T> {
   await sodium.ready;
   const sk = await curve25519SecretKey();
