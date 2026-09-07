@@ -1,0 +1,17 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+solc_version = "0.8.24"
+optimizer = true
+optimizer_runs = 20000
+via_ir = false
+
+[rpc_endpoints]
+celo = "${CELO_RPC_URL}"
+celo_sepolia = "https://forno.celo-sepolia.celo-testnet.org"
+
+[etherscan]
+celo = { key = "${CELOSCAN_API_KEY}", url = "https://api.celoscan.io/api" }

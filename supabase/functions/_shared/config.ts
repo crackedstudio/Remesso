@@ -1,0 +1,96 @@
+/// Central config. Everything here comes from Supabase secrets; nothing is
+/// hard-coded except addresses that were verified on-chain.
+
+export const CELO = {
+  rpcUrl: Deno.env.get("CELO_RPC_URL") ?? "https://forno.celo.org",
+  chainId: Number(Deno.env.get("CELO_CHAIN_ID") ?? 42220),
+  /// cNGN on Celo mainnet, 6 decimals. Verified 2026-09-07.
+  cngn: (Deno.env.get("CNGN_ADDRESS") ??
+    "0xF6829D7393dAe24509eb1E52eE8e572e2E271a4f") as `0x${string}`,
+  /// USDT on Celo, 6 decimals. The funding asset: it is the only token with a
+  /// cNGN pool, so senders fund in USDT and we never need a second hop.
+  usdt: (Deno.env.get("USDT_ADDRESS") ??
+    "0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e") as `0x${string}`,
+  quoter: (Deno.env.get("UNISWAP_V3_QUOTER") ??
+    "0x82825d0554fA07f7FC52Ab63c961F330fdEFa8E8") as `0x${string}`,
+  executor: Deno.env.get("REMESSO_EXECUTOR_ADDRESS") as `0x${string}`,
+  poolFee: Number(Deno.env.get("POOL_FEE_TIER") ?? 100),
+};
+
+/// Read lazily rather than snapshotted at import time. Eager reads capture
+/// whatever the environment held the instant the module graph was evaluated,
+/// which makes import order load-bearing and pins a missing secret to
+/// `undefined` for the life of the isolate even after it is supplied.
+export const CNGN_API = {
+  get base(): string {
+    return Deno.env.get("CNGN_API_BASE") ?? "https://api.cngn.co/v1/api";
+  },
+  /// The prefix selects the environment: cngn_test_... is sandbox, cngn_live_...
+  /// moves real naira. Each environment has its own encryption and SSH keys.
+  get apiKey(): string {
+    return Deno.env.get("CNGN_API_KEY") ?? "";
+  },
+  /// AES-256-CBC request encryption. SHA-256'd to derive the 32-byte key.
+  get encryptionKey(): string {
+    return Deno.env.get("CNGN_ENCRYPTION_KEY") ?? "";
+  },
+  /// OpenSSH Ed25519 private key. Its public half is uploaded to the dashboard,
+  /// and every response `data` field is sealed to it. Without this, responses
+  /// are unreadable and requests fail with "No Test/Live SSH Key found".
+  get sshPrivateKey(): string {
+    return Deno.env.get("CNGN_SSH_PRIVATE_KEY") ?? "";
+  },
+  /// Signs inbound webhooks: X-cNGN-Signature: sha256=<hex hmac of raw body>.
+  get webhookSecret(): string {
+    return Deno.env.get("CNGN_WEBHOOK_SECRET") ?? "";
+  },
+  get isLive(): boolean {
+    return this.apiKey.startsWith("cngn_live");
+  },
+  /// An HTTP forward proxy with a fixed egress IP, e.g.
+  /// `http://user:pass@proxy.example.com:9293`.
+  ///
+  /// cNGN whitelists by source IP and answers 403 to everything else, and
+  /// Supabase Edge Functions have no stable egress address. Routing cNGN
+  /// traffic through one proxy is what makes a whitelist entry possible.
+  /// Unset means direct, which only works where the runtime's own IP is
+  /// whitelisted.
+  get egressProxyUrl(): string {
+    return Deno.env.get("CNGN_EGRESS_PROXY_URL") ?? "";
+  },
+};
+
+export const LIMITS = {
+  /// Backend slippage bound, tightened on top of the contract's own floor.
+  maxSlippageBps: Number(Deno.env.get("MAX_SLIPPAGE_BPS") ?? 100),
+  /// Refuse to execute above this even if the on-chain envelope permits it.
+  /// The cNGN/USDT pool holds roughly $95k; a single large run is the one way
+  /// to eat real slippage. Measured 2026-09-07: $1k costs 0.06%, $10k costs
+  /// 0.56%, $50k costs 2.7%.
+  maxRunAmountUsdt: Number(Deno.env.get("MAX_RUN_AMOUNT_USDT") ?? 1000),
+  /// Abort a run if the pool cannot fill it inside this bound.
+  maxAcceptableImpactBps: 150,
+};
+
+export function requireEnv(): void {
+  const missing = [
+    ["REMESSO_EXECUTOR_ADDRESS", CELO.executor],
+    ["CNGN_API_KEY", CNGN_API.apiKey],
+    ["CNGN_ENCRYPTION_KEY", CNGN_API.encryptionKey],
+    ["CNGN_SSH_PRIVATE_KEY", CNGN_API.sshPrivateKey],
+    ["EXECUTOR_PRIVATE_KEY", Deno.env.get("EXECUTOR_PRIVATE_KEY")],
+  ].filter(([, v]) => !v).map(([k]) => k);
+  if (missing.length) throw new Error(`missing secrets: ${missing.join(", ")}`);
+
+  // A test key against mainnet Celo would swap real USDT and then try to redeem
+  // it in a sandbox that never pays out. Catch it here, not in production.
+  const key = CNGN_API.apiKey;
+  if (!key.startsWith("cngn_test") && !key.startsWith("cngn_live")) {
+    throw new Error("CNGN_API_KEY must start with cngn_test or cngn_live");
+  }
+  if (CELO.chainId === 42220 && !CNGN_API.isLive) {
+    throw new Error(
+      "refusing to run: Celo mainnet is configured with a cNGN sandbox key",
+    );
+  }
+}
