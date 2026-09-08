@@ -1,0 +1,35 @@
+project_id = "engaboljiqudghvzmebq"
+
+# ---------------------------------------------------------------------------
+# Edge Functions
+#
+# verify_jwt defaults to true: the platform rejects any request without a valid
+# Supabase JWT before the function's own code runs.
+# ---------------------------------------------------------------------------
+
+# cNGN signs deliveries with an HMAC in X-cNGN-Signature and knows nothing about
+# Supabase JWTs. Left at the default, every webhook would be refused with 401 by
+# the platform — and since cNGN sends each delivery exactly once with no retry,
+# every redemption event would be lost permanently.
+#
+# The endpoint is not unauthenticated as a result: the handler verifies the HMAC
+# over the raw body itself and answers 401 on a mismatch. Authentication moves
+# from the platform to the signature, which is the only scheme cNGN speaks.
+[functions.cngn-webhook]
+verify_jwt = false
+
+# Invoked by pg_cron through invoke_edge_function(), which sends the service
+# role key from the vault. A real JWT, so platform verification stays on.
+[functions.execute-due-runs]
+verify_jwt = true
+
+[functions.reconcile-redemptions]
+verify_jwt = true
+
+[functions.balance-poller]
+verify_jwt = true
+
+# Called by the Next.js route handlers with the signed-in sender's JWT. The
+# function re-checks the user itself; this is the outer gate.
+[functions.cngn-proxy]
+verify_jwt = true
