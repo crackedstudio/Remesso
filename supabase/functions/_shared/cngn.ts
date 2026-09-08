@@ -529,7 +529,7 @@ export function getTransactions(page = 1, limit = 50) {
 /// and exhaust the rate limit.
 export async function findTransaction(
   trxRef: string,
-  maxPages = 4,
+  maxPages = 2,
 ): Promise<Transaction | null> {
   for (let page = 1; page <= maxPages; page++) {
     const res = await getTransactions(page, 50);

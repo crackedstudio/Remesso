@@ -21,9 +21,14 @@ const db = createClient(
 /// of polling forever against a 20/min budget.
 const MAX_ATTEMPTS = 12;
 
-/// A run is not stale the instant it is created — redemptions legitimately take
-/// minutes. Only look at ones the webhook has already had a fair chance at.
-const STALE_AFTER = "10 minutes";
+/// How long to leave a redemption alone before polling for it.
+///
+/// This was 10 minutes, sized to give the webhook a fair chance first. With no
+/// webhook configured there is nothing to wait for: the transactions API is the
+/// only way a redemption is ever observed, so the delay is pure settlement
+/// latency. Two minutes still avoids polling a redemption cNGN has not had time
+/// to process.
+const STALE_AFTER = "2 minutes";
 
 Deno.serve(async () => {
   if (!CNGN_API.apiKey || !CNGN_API.sshPrivateKey) {
@@ -32,9 +37,12 @@ Deno.serve(async () => {
 
   const { data: stale, error } = await db.rpc("stale_redemptions", {
     p_older_than: STALE_AFTER,
-    // The whole sweep shares one 20-request-per-minute budget with the executor
-    // loop, and each run costs at least one page fetch.
-    p_limit: 8,
+    // cNGN allows 20 requests per 60s per API key. The limiter in cngn.ts is
+    // per-isolate, and each Edge Function invocation gets its own isolate, so
+    // it cannot see requests made by a concurrent executor run. The budget is
+    // therefore kept low here by construction rather than by coordination:
+    // 5 runs x at most 2 pages = 10 requests worst case per sweep.
+    p_limit: 5,
   });
   if (error) return json({ error: error.message }, 500);
 
