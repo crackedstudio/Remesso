@@ -5,18 +5,27 @@
 ///   wallet payout   quote -> simulate -> executeRun -> delivered
 ///   bank payout     quote -> redeemAsset (get deposit address)
 ///                         -> executeRun sending cNGN there
-///                         -> redeeming -> [webhook] -> paid_out
+///                         -> redeeming -> [poll/webhook] -> paid_out
 ///
 /// A bank run is NOT complete when the swap settles. It is complete when cNGN
 /// says naira reached the account. Marking it earlier is the mistake that
 /// tells a sender money arrived when it has not.
+///
+/// The work is split into two phases for throughput:
+///
+///   prepare   read-only and parallel — runnability, limits, liquidity, quote
+///   settle    sequential — redeemAsset, then executeRun
+///
+/// Settling stays sequential because every run is signed by one executor EOA.
+/// Broadcasting in parallel makes them all claim the same nonce and all but one
+/// is rejected. Batching them into a single transaction is the way past that,
+/// and it needs a batcher contract set via setExecutor — see README.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { CELO, LIMITS, requireEnv } from "../_shared/config.ts";
 import {
   executeRun,
   getSchedule,
   liquidityIsHealthy,
-  quoteUsdtToCngn,
   runnability,
 } from "../_shared/celo.ts";
 import { assertCeloSupported, CngnError, redeemToBank } from "../_shared/cngn.ts";
@@ -26,22 +35,52 @@ const db = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-Deno.serve(async (req) => {
+/// Concurrent read-phase workers. Bounded because every one of them is issuing
+/// RPC calls to the same Celo endpoint, and a burst gets throttled rather than
+/// served faster.
+const READ_CONCURRENCY = 8;
+
+/// Stop starting new settlements past this point and hand the rest to the next
+/// tick. Edge Functions have a wall clock, and a run killed mid-broadcast is
+/// far worse than a run that waits a minute.
+const SETTLE_DEADLINE_MS = 45_000;
+
+/// Never claim more than one invocation can plausibly finish.
+const BATCH = 20;
+
+type DueSchedule = {
+  schedule_id: string;
+  onchain_id: string;
+  sender_id: string;
+  amount_in: string;
+  payout_type: "wallet" | "ngn_bank";
+};
+
+type Prepared = {
+  s: DueSchedule;
+  runId: string;
+  onchainId: bigint;
+  quote: { amountOut: bigint; minOut: bigint; rateE6: bigint };
+};
+
+Deno.serve(async () => {
+  const startedAt = Date.now();
   try {
     requireEnv();
   } catch (e) {
     return json({ error: (e as Error).message }, 500);
   }
 
-  const { data: due, error } = await db.rpc("due_schedules", { p_limit: 50 });
+  const { data: due, error } = await db.rpc("due_schedules", { p_limit: BATCH });
   if (error) return json({ error: error.message }, 500);
 
-  const schedules = due ?? [];
+  const schedules = (due ?? []) as DueSchedule[];
+  if (!schedules.length) return json({ processed: 0, results: [] });
 
   // One cached call per environment, not per run: confirm cNGN still lists Celo
   // as enabled before any bank payout is attempted. Wallet payouts touch no
   // cNGN API at all and must not be blocked by this.
-  if (schedules.some((s: { payout_type: string }) => s.payout_type === "ngn_bank")) {
+  if (schedules.some((s) => s.payout_type === "ngn_bank")) {
     try {
       await assertCeloSupported();
     } catch (e) {
@@ -49,20 +88,39 @@ Deno.serve(async (req) => {
     }
   }
 
-  const results = [];
-  for (const s of schedules) {
-    results.push(await runOne(s));
+  const results: unknown[] = [];
+
+  // --- phase 1: parallel, read-only -----------------------------------------
+  const prepared: Prepared[] = [];
+  await mapWithConcurrency(schedules, READ_CONCURRENCY, async (s) => {
+    const outcome = await prepare(s);
+    if ("prepared" in outcome) prepared.push(outcome.prepared);
+    else results.push(outcome.result);
+  });
+
+  // --- phase 2: sequential, one nonce at a time -----------------------------
+  const deadline = startedAt + SETTLE_DEADLINE_MS;
+  for (const p of prepared) {
+    if (Date.now() > deadline) {
+      // Release the claim rather than recording a failure. Nothing was
+      // attempted, no redemption was opened, and a `skipped` row here would
+      // feed the backoff in due_schedules and punish the schedule for our
+      // scheduling, not its own state.
+      await db.from("runs").delete().eq("id", p.runId);
+      results.push({ schedule: p.s.schedule_id, status: "deferred" });
+      continue;
+    }
+    results.push(await settle(p));
   }
-  return json({ processed: results.length, results });
+
+  return json({ processed: results.length, ms: Date.now() - startedAt, results });
 });
 
-async function runOne(s: {
-  schedule_id: string;
-  onchain_id: string;
-  sender_id: string;
-  amount_in: string;
-  payout_type: "wallet" | "ngn_bank";
-}) {
+/// Read-only. Claims the run row, then decides whether this schedule can run at
+/// all. Touches no external state beyond Celo reads.
+async function prepare(
+  s: DueSchedule,
+): Promise<{ prepared: Prepared } | { result: unknown }> {
   const onchainId = BigInt(s.onchain_id);
   const amountIn = BigInt(s.amount_in);
 
@@ -72,21 +130,20 @@ async function runOne(s: {
     .from("runs")
     .select("*", { count: "exact", head: true })
     .eq("schedule_id", s.schedule_id);
-  const attempt = (count ?? 0) + 1;
 
   const { data: run, error: claimErr } = await db
     .from("runs")
     .insert({
       schedule_id: s.schedule_id,
       sender_id: s.sender_id,
-      attempt,
+      attempt: (count ?? 0) + 1,
       amount_in: s.amount_in,
       status: "pending",
     })
-    .select()
+    .select("id")
     .single();
 
-  if (claimErr) return { schedule: s.schedule_id, skipped: "already claimed" };
+  if (claimErr) return { result: { schedule: s.schedule_id, skipped: "already claimed" } };
 
   const fail = async (reason: string, status: "failed" | "skipped" = "failed") => {
     await db.from("runs").update({
@@ -94,7 +151,7 @@ async function runOne(s: {
       failure_reason: reason,
       settled_at: new Date().toISOString(),
     }).eq("id", run.id);
-    return { schedule: s.schedule_id, status, reason };
+    return { result: { schedule: s.schedule_id, status, reason } };
   };
 
   try {
@@ -109,28 +166,51 @@ async function runOne(s: {
       return await fail(`amount exceeds backend cap of ${LIMITS.maxRunAmountUsdt} USDT`);
     }
 
-    // 3. One pool, ~$95k deep. Confirm it can still fill this before spending gas.
+    // 3. One pool, ~$95k deep. Confirm it can still fill this before spending
+    //    gas — and reuse the quote it computed rather than asking twice.
     const health = await liquidityIsHealthy(amountIn);
     if (!health.ok) {
       return await fail(`pool impact ${health.impactBps}bps exceeds limit`, "skipped");
     }
 
-    const quote = await quoteUsdtToCngn(amountIn);
     await db.from("runs").update({
       status: "swapping",
-      quoted_rate_e6: quote.rateE6.toString(),
-      min_out: quote.minOut.toString(),
+      quoted_rate_e6: health.quote.rateE6.toString(),
+      min_out: health.quote.minOut.toString(),
     }).eq("id", run.id);
 
-    // 4. For a bank payout, open the redemption BEFORE moving any money, so
-    //    the swap can deliver straight to the address cNGN gives us.
+    return { prepared: { s, runId: run.id, onchainId, quote: health.quote } };
+  } catch (e) {
+    return await fail(describe(e));
+  }
+}
+
+/// Moves money. Sequential by construction — see the note at the top of the
+/// file about nonces.
+async function settle(p: Prepared) {
+  const { s, runId, onchainId, quote } = p;
+
+  const fail = async (reason: string, status: "failed" | "skipped" = "failed") => {
+    await db.from("runs").update({
+      status,
+      failure_reason: reason,
+      settled_at: new Date().toISOString(),
+    }).eq("id", runId);
+    return { schedule: s.schedule_id, status, reason };
+  };
+
+  try {
+    // 4. For a bank payout, open the redemption immediately before the swap, so
+    //    the swap can deliver straight to the address cNGN gives us. This stays
+    //    out of the parallel phase deliberately: a redemption opened for a run
+    //    that then never executes is a dangling payout instruction.
     let cngnTrxRef: string | null = null;
     if (s.payout_type === "ngn_bank") {
       const recipient = await bankDetails(s.schedule_id);
 
-      // cNGN is 6dp on Celo; redeemAsset takes whole naira and rejects
-      // anything under 1. Truncating is deliberate — rounding up would ask
-      // cNGN to burn cNGN the swap did not produce.
+      // cNGN is 6dp on Celo; redeemAsset takes whole naira and rejects anything
+      // under 1. Truncating is deliberate — rounding up would ask cNGN to burn
+      // cNGN the swap did not produce.
       const wholeNaira = Number(quote.amountOut / 1_000_000n);
       if (wholeNaira < 1) {
         return await fail(`swap output ${quote.amountOut} is below cNGN's 1 naira minimum`);
@@ -143,10 +223,10 @@ async function runOne(s: {
       });
       cngnTrxRef = redemption.trxRef;
 
-      // The contract fixes `destination` at authorisation and cannot be
-      // steered here. If cNGN hands back a different address, the swap would
-      // deliver cNGN somewhere the redemption is not watching and the naira
-      // would never arrive — so stop before spending gas.
+      // The contract fixes `destination` at authorisation and cannot be steered
+      // here. If cNGN hands back a different address, the swap would deliver
+      // cNGN somewhere the redemption is not watching and the naira would never
+      // arrive — so stop before spending gas.
       const dest = (await getSchedule(onchainId)).destination.toLowerCase();
       if (redemption.address.toLowerCase() !== dest) {
         return await fail(
@@ -158,7 +238,7 @@ async function runOne(s: {
       await db.from("runs").update({
         cngn_trx_ref: cngnTrxRef,
         cngn_deposit_address: redemption.address,
-      }).eq("id", run.id);
+      }).eq("id", runId);
     }
 
     // 5. Execute. The contract re-checks every limit.
@@ -171,19 +251,40 @@ async function runOne(s: {
       gas_used: receipt.gasUsed.toString(),
       amount_out: quote.amountOut.toString(),
       settled_at: s.payout_type === "ngn_bank" ? null : new Date().toISOString(),
-    }).eq("id", run.id);
+    }).eq("id", runId);
 
+    const r = await runnability(onchainId);
     await db.from("schedules").update({
       next_run_at: new Date(Number(r.nextRunAt) * 1000).toISOString(),
     }).eq("id", s.schedule_id);
 
     return { schedule: s.schedule_id, status: "ok", hash, awaitingPayout: !!cngnTrxRef };
   } catch (e) {
-    const msg = e instanceof CngnError
-      ? `cNGN ${e.status}: ${e.message}${e.retryable ? " (retryable)" : ""}`
-      : (e as Error).message;
-    return await fail(msg);
+    return await fail(describe(e));
   }
+}
+
+/// Run `fn` over `items` with at most `limit` in flight.
+async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+}
+
+function describe(e: unknown): string {
+  return e instanceof CngnError
+    ? `cNGN ${e.status}: ${e.message}${e.retryable ? " (retryable)" : ""}`
+    : (e as Error).message;
 }
 
 async function bankDetails(scheduleId: string) {

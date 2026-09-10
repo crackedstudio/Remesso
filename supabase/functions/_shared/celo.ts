@@ -73,6 +73,7 @@ export async function quoteUsdtToCngn(amountIn: bigint): Promise<{
 export async function liquidityIsHealthy(amountIn: bigint): Promise<{
   ok: boolean;
   impactBps: number;
+  quote: { amountOut: bigint; minOut: bigint; rateE6: bigint };
 }> {
   const probe = 1_000_000n; // 1 USDT reference trade
   const [small, actual] = await Promise.all([
@@ -82,7 +83,14 @@ export async function liquidityIsHealthy(amountIn: bigint): Promise<{
   const impactBps = Number(
     ((small.rateE6 - actual.rateE6) * 10_000n) / small.rateE6,
   );
-  return { ok: impactBps <= LIMITS.maxAcceptableImpactBps, impactBps };
+  // The quote is returned, not recomputed by the caller. Quoting twice cost an
+  // extra RPC round trip and, worse, let the price move in between — so the
+  // minOut actually sent was not the one this health check approved.
+  return {
+    ok: impactBps <= LIMITS.maxAcceptableImpactBps,
+    impactBps,
+    quote: actual,
+  };
 }
 
 export type Runnability = {
