@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "permissions": {
+    "allow": [
+      "Bash(cast balance *)",
+      "Bash(cast call *)",
+      "Bash(cast chain-id *)",
+      "Bash(cast nonce *)",
+      "Bash(cast gas-price *)",
+      "Bash(cast wallet address *)",
+      "Bash(cast from-wei *)",
+      "Bash(cast to-wei *)",
+      "Bash(forge test *)",
+      "Bash(forge test)",
+      "Bash(forge build *)",
+      "Bash(forge fmt --check *)",
+      "Bash(deno check *)",
+      "Bash(deno test *)",
+      "Bash(deno fmt --check *)",
+      "Bash(supabase functions list *)",
+      "Bash(supabase functions list)",
+      "Bash(supabase secrets list *)",
+      "Bash(supabase secrets list)",
+      "Bash(supabase projects list)",
+      "Bash(supabase migration list *)",
+      "Bash(npx tsc --noEmit *)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx next build)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r \".tool_response.filePath // .tool_input.file_path // empty\" | { read -r f; case \"$f\" in *supabase/functions/*.ts) deno check \"$f\";; esac; }",
+            "timeout": 120,
+            "statusMessage": "Typechecking edge function"
+          },
+          {
+            "type": "command",
+            "command": "jq -r \".tool_response.filePath // .tool_input.file_path // empty\" | { read -r f; case \"$f\" in *.sol) (cd \"${CLAUDE_PROJECT_DIR:-.}/contracts\" && FOUNDRY_DISABLE_NIGHTLY_WARNING=1 forge test);; esac; }",
+            "timeout": 300,
+            "statusMessage": "Running contract tests"
+          }
+        ]
+      }
+    ]
+  }
+}
