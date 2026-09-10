@@ -1,0 +1,135 @@
+# CLAUDE.md
+
+Recurring stablecoin remittances on Celo, settling in cNGN. A sender authorises
+once on-chain; a backend hot key can then trigger runs, but only inside the
+envelope the sender signed.
+
+Read `README.md` for the why. This file is what you need to not break it.
+
+## Commands
+
+```bash
+# contracts — 17 tests, all must pass
+cd contracts && forge test
+
+# cNGN crypto — verifies our AES/Ed25519 against the docs' reference impls
+deno test --allow-env --allow-read --allow-write --allow-run --allow-net --allow-sys \
+  supabase/functions/_shared/cngn.test.ts
+
+# is .env complete and coherent? proves the SSH key by round-tripping it
+deno run --allow-env --allow-read --allow-net scripts/check-env.ts
+
+deno check supabase/functions/*/index.ts
+cd web && npx tsc --noEmit && npx next build && npm start   # localhost:3000
+
+# deploy
+supabase functions deploy execute-due-runs cngn-webhook reconcile-redemptions \
+  cngn-proxy balance-poller
+supabase secrets set --env-file .env.functions
+```
+
+`.env.functions` — not `.env`. Supabase injects `SUPABASE_URL`, `SUPABASE_ANON_KEY`
+and `SUPABASE_SERVICE_ROLE_KEY` itself and rejects them as reserved, failing the
+whole command. Regenerate it with:
+
+```bash
+grep -vE '^SUPABASE_(URL|ANON_KEY|SERVICE_ROLE_KEY)=' .env | grep -E '^[A-Z0-9_]+=' > .env.functions
+```
+
+## Deployed state — Celo mainnet (42220)
+
+| | |
+|---|---|
+| `RemessoExecutor` | `0xC7eF75fC6283aB3b810fa4dE270F074C47761189` (verified on Celoscan) |
+| owner | `0xcDEA4Cc4191Ec9A5d8fD1a6B17e3F4C84E993Ae2` — cold, deploy only |
+| executor (hot) | `0x3c754AD31e802D5fA65487f460dED65Aba749Cd1` — cron key, gas only |
+| **retired** | `0xe1a0F916e859624D4edbadA23E4382D327EAf626` — **private key was exposed in a session log. Do not reuse.** |
+| Supabase | `engaboljiqudghvzmebq` |
+
+Keys live in `~/.remesso/keys/{owner,executor}.json` and `~/.ssh/cngn_api_key`.
+The contract is immutable: a fix means redeploying and every sender
+re-authorising. Owner can `setExecutor`, `setPoolFee`, `pause`, `rescueToken` —
+nothing else, and it cannot redirect a payment.
+
+## Traps
+
+These each cost real time to find. None are visible from the code alone.
+
+1. **cNGN is 6dp.** Mento's unrelated `NGNm` is 18dp. Confusing them is 10¹².
+
+2. **cNGN seals responses.** Requests are AES-256-CBC `{content, iv}`; every
+   successful response is `{status, message, data}` where `data` is a base64
+   libsodium `crypto_box` sealed to our Ed25519 key. Reading a field off it
+   without opening it first yields `undefined` silently. `cngn.test.ts` proves
+   both directions against the docs' own reference implementations.
+
+3. **cNGN webhooks fire exactly once**, 10s timeout, no retry. A 500 loses the
+   event permanently. `GET /transactions` is the settlement of record;
+   `reconcile-redemptions` is what makes the webhook optional rather than
+   load-bearing. Never make correctness depend on a delivery arriving.
+
+4. **The endpoint is `POST /account/verify`.** `/verifyAccountDetails` does not
+   exist. `/withdraw/verify/{ref}` takes withdrawal refs only — a redemption's
+   `RD-` ref returns "Transaction not found".
+
+5. **`verify_jwt = false` only on `cngn-webhook`** (`supabase/config.toml`).
+   cNGN sends an HMAC, not a Supabase JWT; at the default every delivery is
+   refused at the edge before our code runs. Do not "fix" this.
+
+6. **cNGN rate limit is 20 req/60s per key**, and breaching it blocks the key
+   for another 60s. The limiter in `cngn.ts` is **per-isolate** — each Edge
+   Function invocation gets its own, so it cannot see a concurrent function's
+   requests. Budgets are kept safe by keeping per-invocation counts small, not
+   by coordination. Moving it to Postgres is the fix if throughput grows.
+
+7. **Never `source` the `.env`.** Values contain spaces, `\n` escapes and URLs;
+   sourcing it in zsh echoes secrets back as "command not found". Parse it
+   (`grep '^KEY=' .env | cut -d= -f2-`).
+
+8. **`re.sub` interprets backslashes in the replacement string.** Writing the
+   SSH key back with `\n` escapes turns them into real newlines. Use a lambda.
+
+## Invariants — do not break
+
+- **`delivered` is not `paid_out`.** For a bank payout, the swap settling means
+  cNGN reached the redemption address, not that anyone has naira. Only
+  `redemption.completed` (or a `success` from `/transactions`) means that. The
+  UI must never render an `ngn_bank` run's `delivered` as a finished state.
+- **The contract is the authority; the database mirrors it.** Anything that
+  tells a sender a run will go through reads `runnability()` on-chain.
+- **`destination` is immutable per schedule.** `execute-due-runs` aborts before
+  spending gas if cNGN returns an address that doesn't match it.
+- **No cNGN credential reaches the browser.** The frontend talks to route
+  handlers, which forward to the `cngn-proxy` Edge Function. That is also the
+  only arrangement with a single egress IP to whitelist.
+- Keep the Uniswap call inside `_shared/celo.ts`. ~76% of Celo's cNGN sits in
+  one pool; the swap venue is a replaceable component.
+
+## Open blockers
+
+- **Regulatory — blocking for launch.** Instructing naira payouts to third
+  parties is a money-transmission question. Needs a Nigerian fintech lawyer.
+- **cNGN account is not verified.** ₦100,000 + KYB, required before
+  `redeemAsset` works at all.
+- **IP whitelist.** cNGN 403s non-whitelisted sources. Supabase Edge Functions
+  egress from the whole AWS `eu-central-1` pool — measured: 8 calls, 8 IPs.
+  Not solvable by whitelisting. Needs a fixed-IP proxy (`CNGN_EGRESS_PROXY_URL`
+  is implemented) or a different host. **BlockRadar makes IP whitelisting
+  opt-in and may be the better rail — but confirm cNGN-on-Celo is in its NGN
+  corridor first.**
+- **Redemption address stability.** Unanswered by cNGN. If it rotates per
+  redemption, `ngn_bank` needs a sender-approved allowlist, not one address.
+- **Celo in cNGN's `/networks`.** Their docs show Base and Polygon, no Celo.
+  `assertCeloSupported()` fails loudly rather than mid-flight.
+- **Sender identity is a claim, not a proof.** MiniPay cannot sign messages, so
+  SIWE is unavailable and wallets bind to an anonymous Supabase session. The
+  money path is unaffected — the contract checks `msg.sender`.
+- The contract is **live on mainnet and unaudited.** No schedule has ever run.
+
+## Conventions
+
+Comments explain *why*, especially where the code looks odd — those are usually
+load-bearing. Match the density already there; don't strip it.
+
+Wallet payouts touch no cNGN API, so they are testable today and independent of
+every blocker above. That is the shortest path to proving the loop.
