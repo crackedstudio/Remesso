@@ -111,16 +111,17 @@ These each cost real time to find. None are visible from the code alone.
   parties is a money-transmission question. Needs a Nigerian fintech lawyer.
 - **cNGN account is not verified.** ₦100,000 + KYB, required before
   `redeemAsset` works at all.
-- **IP whitelist.** cNGN 403s non-whitelisted sources. Supabase Edge Functions
-  egress from the whole AWS `eu-central-1` pool — measured: 8 calls, 8 IPs.
-  Not solvable by whitelisting. Needs a fixed-IP proxy (`CNGN_EGRESS_PROXY_URL`
-  is implemented) or a different host. **BlockRadar makes IP whitelisting
-  opt-in and may be the better rail — but confirm cNGN-on-Celo is in its NGN
-  corridor first.**
+- **IP whitelist.** cNGN confirmed 2026-09-10: **static IP only, no CIDR.**
+  Supabase egresses from the whole AWS `eu-central-1` pool (measured: 8 calls,
+  8 IPs), so it cannot be whitelisted. Stand up a fixed-IP forward proxy and set
+  `CNGN_EGRESS_PROXY_URL` — verified the Edge Runtime exposes
+  `Deno.createHttpClient` with a proxy config, so nothing needs relocating.
+  BlockRadar makes IP whitelisting opt-in and remains a live alternative, but
+  confirm cNGN-on-Celo is in its NGN corridor first.
 - **Redemption address stability.** Unanswered by cNGN. If it rotates per
   redemption, `ngn_bank` needs a sender-approved allowlist, not one address.
-- **Celo in cNGN's `/networks`.** Their docs show Base and Polygon, no Celo.
-  `assertCeloSupported()` fails loudly rather than mid-flight.
+- ~~Celo support~~ **Resolved 2026-09-10:** cNGN confirmed Celo redemption is
+  supported; their docs' network list is an abbreviated example.
 - **Sender identity is a claim, not a proof.** MiniPay cannot sign messages, so
   SIWE is unavailable and wallets bind to an anonymous Supabase session. The
   money path is unaffected — the contract checks `msg.sender`.

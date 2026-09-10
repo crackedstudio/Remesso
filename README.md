@@ -322,14 +322,23 @@ Edge Functions run on a large, dynamic pool of addresses, so **there is nothing
 stable to whitelist.** This is a deployment blocker for the live environment,
 not a code problem, and it has three possible answers:
 
-1. Route cNGN traffic through a fixed-IP forward proxy and whitelist that. Set
-   `CNGN_EGRESS_PROXY_URL`; `cngn.ts` will send every call through it, and
-   throws a clear error rather than silently going direct if the runtime cannot.
-2. Move the four cNGN-touching functions onto a host with a static egress IP.
-3. Ask cNGN whether they will whitelist a CIDR range.
+**cNGN confirmed 2026-09-10: static IP only, no CIDR.** That settles it — there
+is no arrangement under which Supabase's rotating egress can be whitelisted, so
+cNGN traffic has to leave from one fixed address.
 
-Sandbox integration works without solving this if cNGN's test environment does
-not enforce the whitelist. Confirm that before assuming the same holds live.
+1. **A fixed-IP forward proxy — the recommended path.** Set
+   `CNGN_EGRESS_PROXY_URL` and `cngn.ts` routes every cNGN call through it,
+   throwing a clear error rather than silently going direct if the runtime
+   cannot. Verified 2026-09-10 that the Supabase Edge Runtime
+   (supabase-edge-runtime-1.76.0, Deno 2.1.4) does expose
+   `Deno.createHttpClient` and accepts a proxy config, so this works without
+   moving anything. A small VPS running tinyproxy, a Fly.io machine with a
+   dedicated IPv4, or a managed static-IP proxy all satisfy it.
+2. Move the cNGN-touching functions onto a host that has a static egress IP.
+
+The 403 was reproduced directly: `GET /balance` with the live key returns
+`{"status":403,"message":"IP address not whitelisted"}`, and an empty IP Access
+List blocks everything rather than allowing everything.
 
 ---
 
@@ -350,11 +359,10 @@ not enforce the whitelist. Confirm that before assuming the same holds live.
   `NEXT_PUBLIC_CNGN_REDEMPTION_ADDRESS` is set. **Confirm stability with cNGN
   before mainnet.** If it does rotate, the envelope needs a sender-approved
   allowlist instead of a single immutable address.
-- **cNGN's Celo support is unconfirmed in the docs.** `GET /networks` is
-  documented with Base and Polygon in the example and no Celo entry.
-  `assertCeloSupported()` runs once per executor invocation and refuses to
-  attempt bank payouts if Celo is absent or disabled, so this fails loudly at
-  setup rather than mid-flight. It still needs confirming with cNGN directly.
+- ~~**cNGN's Celo support is unconfirmed.**~~ **Resolved 2026-09-10:** cNGN
+  confirmed *"Celo redemption is supported."* Their `/networks` documentation
+  showing only Base and Polygon is an abbreviated example, not a limit.
+  `assertCeloSupported()` still runs as a preflight.
 - **Sender identity is a claim, not a proof.** MiniPay does not support message
   signing, so SIWE is unavailable to most of this audience and the app binds a
   wallet to an anonymous Supabase session. This does not weaken the money path —
@@ -362,5 +370,13 @@ not enforce the whitelist. Confirm that before assuming the same holds live.
   database can move funds — but `senders.wallet_address` is first-come, so an
   address can be squatted. The fix, once a signing path exists, is to verify
   ownership from `schedulesOf(address)` and the authorising transaction.
-- **The IP whitelist has no answer yet** for the live environment. See above.
+- **The IP whitelist needs a fixed-IP proxy standing up.** cNGN will not
+  whitelist a CIDR, and Supabase egresses from the whole AWS `eu-central-1`
+  pool — measured: 8 consecutive calls, 8 distinct IPs.
+- **cNGN account is not verified.** ₦100,000 one-time fee plus KYB documents,
+  and `redeemAsset` does not work until it completes.
+- **Webhooks are not yet configurable.** cNGN confirmed 2026-09-10 that support
+  ships "next week". Until then `reconcile-redemptions` polling
+  `GET /transactions` is the settlement of record — which the redeemAsset
+  reference endorses anyway ("Track it via Get Transactions").
 - Recipient notifications — one seam left in `balance-poller`.
