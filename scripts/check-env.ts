@@ -15,7 +15,10 @@ import { Buffer } from "node:buffer";
 const env: Record<string, string> = {};
 for (const line of (await Deno.readTextFile(".env")).split("\n")) {
   const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-  if (m) env[m[1]] = m[2].trim();
+  // Strip trailing ` # comment`, which .env.example uses to annotate addresses.
+  // Only " #" (space-hash) counts, so a value that legitimately contains a hash
+  // — a URL fragment, a hex secret — survives intact.
+  if (m) env[m[1]] = m[2].replace(/\s+#.*$/, "").trim();
 }
 for (const [k, v] of Object.entries(env)) if (v) Deno.env.set(k, v);
 

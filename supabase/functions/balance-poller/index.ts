@@ -6,7 +6,7 @@
 /// anything — that is execute-due-runs' job alone.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { runnability } from "../_shared/celo.ts";
-import { liquidityIsHealthy } from "../_shared/celo.ts";
+import { liquidityIsHealthy, executorAccount, publicClient } from "../_shared/celo.ts";
 
 const db = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -24,6 +24,21 @@ Deno.serve(async () => {
   if (error) return new Response(error.message, { status: 500 });
 
   const warnings: Array<Record<string, unknown>> = [];
+
+  // Nothing else watches this. An executor that runs dry fails every run at the
+  // simulate step, and the only symptom is failed runs piling up with a gas
+  // message nobody is reading. Roughly 0.05 CELO per run, so 1 CELO is ~20 runs.
+  try {
+    const balance = await publicClient.getBalance({ address: executorAccount().address });
+    const celo = Number(balance) / 1e18;
+    if (celo < 1) {
+      warnings.push({ kind: "executor_gas_critical", celo, runsRemaining: Math.floor(celo / 0.05) });
+    } else if (celo < 5) {
+      warnings.push({ kind: "executor_gas_low", celo, runsRemaining: Math.floor(celo / 0.05) });
+    }
+  } catch (e) {
+    warnings.push({ kind: "executor_gas_unknown", error: (e as Error).message });
+  }
 
   for (const s of schedules ?? []) {
     const r = await runnability(BigInt(s.onchain_id));
