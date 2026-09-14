@@ -5,7 +5,7 @@ import { useAccount, useReadContract, useSimulateContract } from "wagmi";
 import { supabase } from "./supabase";
 import { executorAbi, erc20Abi, quoterAbi } from "./abi";
 import { CNGN, EXECUTOR_ADDRESS, POOL_FEE, QUOTER, USDT, isConfigured } from "./config";
-import type { Run, Schedule } from "./types";
+import type { Numeric, Run, Schedule } from "./types";
 
 /// The `senders` row for the connected wallet. Everything else keys off it, so
 /// it is fetched once and shared rather than re-derived per component.
@@ -85,7 +85,7 @@ export function useRuns(scheduleId: string) {
 /// The contract's own view of whether a schedule can run. This is the authority
 /// — the database mirrors it — so anything that tells a sender "your next
 /// payment will go through" reads from here, not from a row.
-export function useRunnability(onchainId: string | null) {
+export function useRunnability(onchainId: Numeric | null) {
   return useReadContract({
     address: EXECUTOR_ADDRESS,
     abi: executorAbi,

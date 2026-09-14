@@ -2,8 +2,25 @@
 /// units — 6dp for both USDT and cNGN — and is only ever converted to a
 /// decimal string at the point of display.
 
-export function formatUnits6(v: bigint | string, dp = 2): string {
-  const n = typeof v === "string" ? BigInt(v) : v;
+/// Coerce whatever the source actually hands us into a bigint.
+///
+/// PostgREST serialises `numeric(78,0)` as a JSON *number*, not a string, so a
+/// column typed `string` in lib/types.ts arrives as a number at runtime and
+/// TypeScript cannot catch it. Getting this wrong crashed the schedule detail
+/// page with "Cannot mix BigInt and other types" immediately after the first
+/// live run.
+///
+/// Above 2^53 a JSON number has already lost precision before it reaches us;
+/// nothing can be recovered here, so it is truncated rather than thrown on —
+/// 9e15 base units is 9 billion tokens at 6dp, far beyond any real amount.
+function toUnits(v: bigint | string | number): bigint {
+  if (typeof v === "bigint") return v;
+  if (typeof v === "number") return BigInt(Math.trunc(v));
+  return BigInt(v);
+}
+
+export function formatUnits6(v: bigint | string | number, dp = 2): string {
+  const n = toUnits(v);
   const neg = n < 0n;
   const abs = neg ? -n : n;
   const whole = abs / 1_000_000n;
@@ -68,9 +85,8 @@ export function relativeTime(iso: string | number | null | undefined): string {
 /// USDT base units in. With both tokens at 6dp that is just naira-per-dollar
 /// scaled by 1e6, which is the only reason a "rate" and a "unit price" can be
 /// the same number here.
-export function rateToNairaPerUsd(rateE6: bigint | string): number {
-  const r = typeof rateE6 === "string" ? BigInt(rateE6) : rateE6;
-  return Number(r) / 1_000_000;
+export function rateToNairaPerUsd(rateE6: bigint | string | number): number {
+  return Number(toUnits(rateE6)) / 1_000_000;
 }
 
 export function nairaPerUsdToRateE6(naira: number): bigint {
