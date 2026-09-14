@@ -146,6 +146,14 @@ Point the cNGN dashboard's webhook URL at
 secret to `CNGN_WEBHOOK_SECRET`. Configure the test URL and verify against
 sandbox transactions before touching the live one.
 
+**Enable anonymous sign-in** before the frontend will work at all: Supabase
+Dashboard -> Authentication -> Sign In / Providers -> Anonymous sign-ins. It is
+off by default, and `ensureSender()` calls `signInAnonymously()` on every wallet
+connection — MiniPay cannot sign messages, so SIWE is not available to this
+audience. Without it every request fails with
+`422 anonymous_provider_disabled`, which surfaces as a frontend that silently
+shows no schedules.
+
 Then the sender app:
 
 ```bash

@@ -92,6 +92,15 @@ These each cost real time to find. None are visible from the code alone.
 8. **`re.sub` interprets backslashes in the replacement string.** Writing the
    SSH key back with `\n` escapes turns them into real newlines. Use a lambda.
 
+## Project setup that is not in code
+
+- **Anonymous sign-in must be enabled** in the Supabase dashboard (Authentication
+  -> Sign In / Providers). Off by default. `ensureSender()` depends on it, so
+  without it the entire frontend is inert: `422 anonymous_provider_disabled`.
+- **`CNGN_EGRESS_PROXY_URL`** points at a tinyproxy box whose IP is whitelisted
+  with cNGN. Rebuild it with `infra/setup-cngn-proxy.sh`, then whitelist the new
+  address — cNGN takes static IPs only, no CIDR.
+
 ## Invariants — do not break
 
 - **`delivered` is not `paid_out`.** For a bank payout, the swap settling means
