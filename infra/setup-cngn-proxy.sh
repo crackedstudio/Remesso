@@ -47,14 +47,17 @@ ConnectPort 443
 # And only to cNGN. If this proxy's credentials ever leak, the worst an
 # attacker gets is the ability to talk to cNGN's public API, which still
 # requires an API key they do not have.
-FilterURLs Off
-Filter /etc/tinyproxy/allowed-hosts
+# tinyproxy 1.11 requires file paths to be quoted, like LogFile and PidFile
+# below; an unquoted path is a config syntax error and the daemon refuses to
+# start. Boolean directives take Yes/No, not On/Off.
+FilterURLs No
+Filter "/etc/tinyproxy/allowed-hosts"
 FilterDefaultDeny Yes
-FilterExtended On
+FilterExtended Yes
 
 # Do not advertise the client's address; cNGN should see only this host.
 DisableViaHeader Yes
-XTinyproxy Off
+XTinyproxy No
 
 LogFile "/var/log/tinyproxy/tinyproxy.log"
 LogLevel Warning
