@@ -33,8 +33,14 @@ and `SUPABASE_SERVICE_ROLE_KEY` itself and rejects them as reserved, failing the
 whole command. Regenerate it with:
 
 ```bash
-grep -vE '^SUPABASE_(URL|ANON_KEY|SERVICE_ROLE_KEY)=' .env | grep -E '^[A-Z0-9_]+=' > .env.functions
+grep -vE '^(SUPABASE_(URL|ANON_KEY|SERVICE_ROLE_KEY)|TESTING_)' .env \
+  | grep -E '^[A-Z0-9_]+=' > .env.functions
 ```
+
+`TESTING_*` is excluded deliberately. Those hold a funded wallet key used only by
+`scripts/e2e-agent-test.ts`, which runs locally — no Edge Function reads them,
+and shipping a spendable key into a deployed environment for no reason is how
+blast radius grows quietly.
 
 ## Deployed state — Celo mainnet (42220)
 

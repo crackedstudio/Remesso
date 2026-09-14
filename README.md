@@ -178,11 +178,15 @@ holds roughly 118M cNGN and 95k USDT. Measured via QuoterV2 on 2026-09-07:
 
 | Trade | Slippage |
 |---|---|
-| $100 | 0.02% |
-| $1,000 | 0.06% |
-| $10,000 | 0.56% |
-| $50,000 | 2.68% |
-| $100,000 | 13.48% |
+| $100 | 0.005% |
+| $1,000 | 0.055% |
+| $2,500 | 0.14% |
+| $5,000 | 0.27% |
+| $10,000 | 0.55% |
+
+Re-measured via QuoterV2 on 2026-09-14: the pool held 93,611 USDT and 119.6M
+cNGN, and spot was ₦1,369.28/USDT. `liquidityIsHealthy` aborts above 150bps,
+which this pool does not reach until roughly $27–30k.
 
 Spot was ₦1,368/USDT, sitting sensibly between the official NFEM rate (₦1,329)
 and the parallel market (₦1,395–1,410).
