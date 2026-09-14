@@ -1,0 +1,13 @@
+-- due_schedules() was reachable over PostgREST by any signed-in user, including
+-- the anonymous sessions the frontend creates for every wallet connection.
+--
+-- It leaked nothing: the function is `language sql stable` without SECURITY
+-- DEFINER, so it runs as the caller and RLS on schedules/recipients/runs
+-- reduced the result to an empty set. But that is protection by accident.
+-- stale_redemptions() beside it IS security definer, and anyone adding that to
+-- due_schedules for symmetry would turn an empty array into a dump of every
+-- sender's schedule. Revoking is the protection that survives that edit.
+--
+-- Only the executor calls this, and it holds the service role, which is
+-- unaffected by these grants.
+revoke all on function public.due_schedules(int) from public, anon, authenticated;
