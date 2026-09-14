@@ -321,8 +321,12 @@ function egressClient(): unknown | null {
     return null;
   }
 
+  type ProxyOpts = {
+    url: string;
+    basicAuth?: { username: string; password: string };
+  };
   const create = (Deno as unknown as {
-    createHttpClient?: (o: { proxy: { url: string } }) => unknown;
+    createHttpClient?: (o: { proxy: ProxyOpts }) => unknown;
   }).createHttpClient;
 
   if (typeof create !== "function") {
@@ -336,8 +340,36 @@ function egressClient(): unknown | null {
     );
   }
 
-  proxyClient = create({ proxy: { url } });
+  proxyClient = create({ proxy: parseProxyUrl(url) });
   return proxyClient as unknown;
+}
+
+/// Split `http://user:pass@host:port` into the shape Deno wants.
+///
+/// Credentials embedded in the URL are not read from it — Deno takes them as a
+/// separate `basicAuth` field — so leaving them inline means the proxy answers
+/// 407 and every cNGN call fails for a reason that looks nothing like the cause.
+/// Percent-encoded credentials are decoded, so a password containing `@` or `:`
+/// survives being written into the URL.
+export function parseProxyUrl(
+  raw: string,
+): { url: string; basicAuth?: { username: string; password: string } } {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new Error(
+      `CNGN_EGRESS_PROXY_URL is not a valid URL: ${raw.replace(/\/\/[^@]*@/, "//***@")}`,
+    );
+  }
+  const username = decodeURIComponent(u.username);
+  const password = decodeURIComponent(u.password);
+  u.username = "";
+  u.password = "";
+  // URL.toString() appends a trailing slash to a bare origin; some proxy
+  // implementations are fussy about it.
+  const url = u.toString().replace(/\/$/, "");
+  return username ? { url, basicAuth: { username, password } } : { url };
 }
 
 async function request<T>(

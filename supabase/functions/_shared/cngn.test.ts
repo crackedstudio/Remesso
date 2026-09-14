@@ -221,6 +221,34 @@ Deno.test("cNGN crypto", async (t) => {
   await Deno.remove(dir, { recursive: true });
 });
 
+Deno.test("egress proxy URL is split into url + basicAuth", async () => {
+  const { parseProxyUrl } = await import("./cngn.ts");
+
+  // Deno reads credentials from `basicAuth`, never from the URL. Leaving them
+  // inline means the proxy answers 407 and every cNGN call fails for a reason
+  // that looks nothing like the cause.
+  assertEquals(parseProxyUrl("http://user:pass@10.0.0.1:8888"), {
+    url: "http://10.0.0.1:8888",
+    basicAuth: { username: "user", password: "pass" },
+  });
+
+  // No credentials: no basicAuth key at all.
+  assertEquals(parseProxyUrl("http://10.0.0.1:8888"), { url: "http://10.0.0.1:8888" });
+
+  // A password containing @ or : must survive being written into the URL.
+  assertEquals(parseProxyUrl("http://u:p%40ss%3Aword@proxy.example.com:3128"), {
+    url: "http://proxy.example.com:3128",
+    basicAuth: { username: "u", password: "p@ss:word" },
+  });
+
+  // A malformed value must name itself, with the credentials redacted.
+  await assertRejects(
+    async () => parseProxyUrl("not-a-url"),
+    Error,
+    "not a valid URL",
+  );
+});
+
 Deno.test("escaped newlines in CNGN_SSH_PRIVATE_KEY are tolerated", async () => {
   await sodium.ready;
   const dir = await Deno.makeTempDir();
