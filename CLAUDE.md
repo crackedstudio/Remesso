@@ -123,6 +123,28 @@ These each cost real time to find. None are visible from the code alone.
 - Keep the Uniswap call inside `_shared/celo.ts`. ~76% of Celo's cNGN sits in
   one pool; the swap venue is a replaceable component.
 
+## The deployed contract has known defects
+
+`RemessoExecutor` at `0xC7eF75fC…1189` is V1 and immutable. A 7/12-agent
+security review on 2026-09-14 found, verified on mainnet:
+
+1. **Bank payouts can never pay out.** cNGN burns only when the transferor is
+   on its external-sender whitelist; a Uniswap swap makes the POOL the
+   transferor, and it is not whitelisted. Silent, total.
+2. **`destination` is checked only against `address(0)`**, but SwapRouter02
+   treats `address(1)`/`address(2)` as sentinels — `address(2)` parks the payout
+   in the router where `sweepToken` is permissionless.
+3. **The floor is write-once**, with no setter and no mandatory expiry, so it
+   decays against NGN and permits sandwiching down to it.
+4. **`runnability()` omits `paused()`** — mitigated in the backend, which now
+   calls `paused()` directly before any redemption is opened.
+5. `minRateE6` unvalidated (floor can truncate to 0), `poolFee` mutable
+   mid-flight, `interval` unbounded, `renounceOwnership` one-step.
+
+`RemessoExecutorV2.sol` fixes all of the above with regression tests
+(`RemessoExecutorV2.t.sol`, 10/10). **It is not deployed.** Deploying means
+every sender re-authorising, so it is a deliberate decision, not a default.
+
 ## Open blockers
 
 - **Regulatory — blocking for launch.** Instructing naira payouts to third

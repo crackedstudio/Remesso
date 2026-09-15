@@ -32,6 +32,7 @@ export const executorAbi = parseAbi([
   "function executeRun(uint256 id, uint256 amountOutMinimum) returns (uint256)",
   "function runnability(uint256 id) view returns (bool due, bool funded, bool approved, uint256 floor, uint64 nextRunAt)",
   "function getSchedule(uint256 id) view returns ((address sender,uint64 interval,uint32 maxRuns,address destination,uint64 nextRunAt,uint32 runsExecuted,uint128 amountIn,uint96 minRateE6,uint64 expiresAt,uint8 payoutType,bool active,bool cancelled))",
+  "function paused() view returns (bool)",
 ]);
 
 const quoterAbi = parseAbi([
@@ -136,6 +137,21 @@ export async function getSchedule(onchainId: bigint): Promise<OnchainSchedule> {
     functionName: "getSchedule",
     args: [onchainId],
   }) as OnchainSchedule;
+}
+
+/// Is the contract globally paused?
+///
+/// The deployed V1's `runnability()` omits this, so it reports due = true while
+/// paused. That matters because a bank run opens a real cNGN redemption BEFORE
+/// calling executeRun — so believing `due` during a pause commits an
+/// irreversible off-chain payout for a run that then reverts, every cycle.
+/// Checked here until V2 folds it into runnability itself.
+export async function isPaused(): Promise<boolean> {
+  return await publicClient.readContract({
+    address: CELO.executor,
+    abi: executorAbi,
+    functionName: "paused",
+  }) as boolean;
 }
 
 export async function executeRun(onchainId: bigint, minOut: bigint) {

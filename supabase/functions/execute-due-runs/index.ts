@@ -25,6 +25,7 @@ import { CELO, LIMITS, requireEnv } from "../_shared/config.ts";
 import {
   executeRun,
   getSchedule,
+  isPaused,
   liquidityIsHealthy,
   runnability,
 } from "../_shared/celo.ts";
@@ -76,6 +77,14 @@ Deno.serve(async () => {
 
   const schedules = (due ?? []) as DueSchedule[];
   if (!schedules.length) return json({ processed: 0, results: [] });
+
+  // The deployed contract's runnability() does not report paused state, so ask
+  // directly. Without this, a pause turns every tick into a fresh cNGN
+  // redemption opened for a run that cannot execute — the emergency lever
+  // making the emergency worse. Security review 2026-09-14.
+  if (await isPaused()) {
+    return json({ processed: 0, paused: true, results: [] });
+  }
 
   // One cached call per environment, not per run: confirm cNGN still lists Celo
   // as enabled before any bank payout is attempted. Wallet payouts touch no

@@ -360,7 +360,19 @@ List blocks everything rather than allowing everything.
   puts Remesso in the business of instructing naira payouts to third parties.
   That is a money-transmission question, and it needs a Nigerian fintech lawyer
   before this goes near real senders, not after.
-- **Bank-payout destination — still the sharpest technical unknown.**
+- **BANK PAYOUTS CANNOT WORK ON THE DEPLOYED CONTRACT.** Security review
+  2026-09-14, verified on mainnet: cNGN only burns — its signal to pay naira —
+  when `isInternalUserWhitelisted(to) && isExternalSenderWhitelisted(msg.sender)`.
+  A Uniswap swap makes the **pool** the transferor, and
+  `isExternalSenderWhitelisted` is `false` for the pool, the router and the
+  executor. So a bank run would debit the sender, emit `RunExecuted`, pass both
+  slippage guards, and never pay naira. `RemessoExecutorV2` fixes this by
+  swapping to itself and forwarding with an explicit `safeTransfer`, making one
+  whitelistable address the sender-of-record. **Until V2 is deployed AND that
+  address is whitelisted by cNGN, do not enable bank payouts.**
+- ~~Bank-payout destination — still the sharpest technical unknown.~~ Largely
+  moot: whether the redemption address is stable no longer matters while a pool
+  cannot trigger a redemption at all. Original note follows.
   `redeemAsset` returns a deposit address *per redemption*, while the contract
   fixes `destination` at authorisation. If that address rotates, an `ngn_bank`
   schedule delivers cNGN somewhere the redemption is not watching and the naira
