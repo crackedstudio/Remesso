@@ -46,7 +46,8 @@ blast radius grows quietly.
 
 | | |
 |---|---|
-| `RemessoExecutor` | `0xC7eF75fC6283aB3b810fa4dE270F074C47761189` (verified on Celoscan) |
+| `RemessoExecutorV2` | `0x218414aD37206fd4cFD6C47947574708DB0e95D2` — **live**, verified |
+| `RemessoExecutor` V1 | `0xC7eF75fC6283aB3b810fa4dE270F074C47761189` — retired 2026-09-15, schedule #1 cancelled, allowance revoked. Has the defects listed below; do not point anything at it. |
 | owner | `0xcDEA4Cc4191Ec9A5d8fD1a6B17e3F4C84E993Ae2` — cold, deploy only |
 | executor (hot) | `0x3c754AD31e802D5fA65487f460dED65Aba749Cd1` — cron key, gas only |
 | **retired** | `0xe1a0F916e859624D4edbadA23E4382D327EAf626` — **private key was exposed in a session log. Do not reuse.** |
@@ -123,7 +124,7 @@ These each cost real time to find. None are visible from the code alone.
 - Keep the Uniswap call inside `_shared/celo.ts`. ~76% of Celo's cNGN sits in
   one pool; the swap venue is a replaceable component.
 
-## The deployed contract has known defects
+## V1 (retired) had these defects — V2 fixes all of them
 
 `RemessoExecutor` at `0xC7eF75fC…1189` is V1 and immutable. A 7/12-agent
 security review on 2026-09-14 found, verified on mainnet:

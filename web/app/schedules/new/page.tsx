@@ -119,6 +119,9 @@ export default function NewSchedulePage() {
         .insert({
           sender_id: senderId,
           recipient_id: recipientRow.id,
+          // Schedule ids are per-contract, so a row is only identified by the
+          // pair. Without this a redeploy collides with the old contract's ids.
+          executor_address: EXECUTOR_ADDRESS,
           amount_in: amountIn.toString(),
           interval_seconds: terms.intervalSeconds,
           min_rate_e6: floorE6.toString(),

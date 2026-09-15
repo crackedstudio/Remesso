@@ -29,6 +29,8 @@ not taken from marketing pages.
 
 | | |
 |---|---|
+| RemessoExecutor V2 | `0x218414aD37206fd4cFD6C47947574708DB0e95D2` — live, verified |
+| RemessoExecutor V1 | `0xC7eF75fC6283aB3b810fa4dE270F074C47761189` — retired, has known defects |
 | cNGN (Celo mainnet) | `0xF6829D7393dAe24509eb1E52eE8e572e2E271a4f` — **6 decimals** |
 | cNGN (Celo Sepolia) | `0xa188439ccCEe9A6aa0E842f9c17C1b00C7B4dd4D` |
 | USDT (funding asset) | `0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e` — 6 decimals |

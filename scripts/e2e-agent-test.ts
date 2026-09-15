@@ -39,7 +39,7 @@ const USDT = need("USDT_ADDRESS") as Address;
 const CNGN = need("CNGN_ADDRESS") as Address;
 const SB_URL = need("SUPABASE_URL");
 const SB_KEY = need("SUPABASE_SERVICE_ROLE_KEY");
-const rawKey = need("TESTING_KEY_AGENT_WORKFLOW");
+const rawKey = need("TESTING_KEY_AGENT_WORKFLOW").replace(/\s/g, "");
 const PK = (rawKey.startsWith("0x") ? rawKey : `0x${rawKey}`) as `0x${string}`;
 
 const account = privateKeyToAccount(PK);
@@ -146,13 +146,26 @@ async function makeSchedule(opts: {
 }) {
   const hash = await wallet.writeContract({
     address: EXECUTOR, abi: execAbi, functionName: "createSchedule",
-    args: [account.address, opts.amountIn, 3600n, opts.minRateE6, opts.maxRuns, 0n, 0n, 0],
+    // V2 rejects expiresAt == 0: a floor that never has to be re-consented is
+    // the stale-floor defect the security review found. 30 days is inside
+    // MAX_LIFETIME and long enough for the suite.
+    args: [
+      account.address,
+      opts.amountIn,
+      3600n,
+      opts.minRateE6,
+      opts.maxRuns,
+      BigInt(Math.floor(Date.now() / 1000) + 30 * 24 * 3600),
+      0n,
+      0,
+    ],
   });
   const receipt = await pub.waitForTransactionReceipt({ hash });
   const [ev] = parseEventLogs({ abi: execAbi, eventName: "ScheduleCreated", logs: receipt.logs });
   const onchainId = ev.args.id.toString();
   const row = await sb("schedules", { method: "POST", body: JSON.stringify({
     sender_id: senderId, recipient_id: recipientId, onchain_id: onchainId,
+    executor_address: EXECUTOR,
     amount_in: opts.amountIn.toString(), interval_seconds: 3600,
     min_rate_e6: opts.minRateE6.toString(), max_runs: opts.maxRuns,
     status: "active", label: opts.label, next_run_at: new Date().toISOString() }) });
@@ -168,7 +181,8 @@ async function runsFor(rowId: string) {
 // ---------------------------------------------------------------------------
 const created: string[] = [];          // on-chain ids this run created
 const rows: string[] = [];             // db row ids this run created
-let startAllowance = 0n;
+let startAllowance = 0n;   // what the wallet had before the suite; restored in teardown
+let workingAllowance = 0n; // what the suite needs while it runs
 
 async function main() {
   console.log("\nRemesso executor — end-to-end agent test\n");
@@ -181,6 +195,30 @@ async function main() {
   };
   startAllowance = await pub.readContract({ address: USDT, abi: erc20, functionName: "allowance", args: [account.address, EXECUTOR] });
   console.log(`before   USDT ${u6(before.usdt)}  cNGN ${u6(before.cngn)}  CELO ${(Number(before.celo)/1e18).toFixed(4)}  allowance ${u6(startAllowance)}`);
+
+  // Provision the allowance the suite needs rather than depending on an
+  // approve run beforehand — a just-mined approve can still read as 0 from a
+  // node that has not caught up, which silently turns every execution test into
+  // a skip. Teardown restores whatever was here first.
+  const NEEDED = 1_000_000n; // 10 runs x 0.1 USDT, with room to spare
+  if (startAllowance < NEEDED) {
+    const h = await wallet.writeContract({
+      address: USDT, abi: erc20, functionName: "approve", args: [EXECUTOR, NEEDED],
+    });
+    await pub.waitForTransactionReceipt({ hash: h });
+    let seen = 0n;
+    for (let i = 0; i < 10 && seen < NEEDED; i++) {
+      seen = await pub.readContract({
+        address: USDT, abi: erc20, functionName: "allowance", args: [account.address, EXECUTOR],
+      });
+      if (seen < NEEDED) await sleep(1000);
+    }
+    if (seen < NEEDED) throw new Error(`allowance did not settle: ${u6(seen)}`);
+    workingAllowance = seen;
+    console.log(`         provisioned allowance ${u6(seen)} for the suite`);
+  } else {
+    workingAllowance = startAllowance;
+  }
 
   PREEXISTING = new Set((await pub.readContract({
     address: EXECUTOR, abi: execAbi, functionName: "schedulesOf", args: [account.address],
@@ -237,7 +275,9 @@ async function main() {
     check("4 revoked allowance is skipped",
       r?.status === "skipped" && /allowance revoked/.test(r.failure_reason ?? ""),
       r ? `${r.status}: ${r.failure_reason}` : "no run row");
-    const h2 = await wallet.writeContract({ address: USDT, abi: erc20, functionName: "approve", args: [EXECUTOR, startAllowance] });
+    const h2 = await wallet.writeContract({
+      address: USDT, abi: erc20, functionName: "approve", args: [EXECUTOR, workingAllowance],
+    });
     await pub.waitForTransactionReceipt({ hash: h2 });
   }
 
@@ -270,8 +310,10 @@ async function main() {
     const all = await Promise.all(batch.map((b) => runsFor(b.rowId)));
     const delivered = all.filter((rs) => rs[0]?.status === "delivered");
     const hashes = new Set(delivered.map((rs) => rs[0].tx_hash));
+    const why = all.map((rs) => rs[0] ? `${rs[0].status}:${(rs[0].failure_reason ?? "").slice(0, 40)}` : "no row");
     check("6 four concurrent schedules all execute",
-      delivered.length === 4, `${delivered.length}/4 delivered (processed ${res.processed})`);
+      delivered.length === 4,
+      `${delivered.length}/4 delivered (processed ${res.processed})${delivered.length < 4 ? " — " + why.join(" | ") : ""}`);
     check("7 each run is a distinct transaction — no nonce collision",
       hashes.size === delivered.length && delivered.length > 0, `${hashes.size} distinct tx hashes`);
 
