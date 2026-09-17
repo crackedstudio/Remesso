@@ -54,8 +54,19 @@ type DueSchedule = {
   onchain_id: string;
   sender_id: string;
   amount_in: string;
-  payout_type: "wallet" | "ngn_bank";
+  payout_type: "direct" | "wallet" | "ngn_bank";
+  token_address: string | null;
 };
+
+/// Decimals by token. Not uniform: USDT and USDC are 6dp, cUSD is 18dp. The
+/// backend cap below is in whole units, so applying it without the right scale
+/// is wrong by 10^12 for cUSD.
+const DECIMALS: Record<string, number> = {
+  "0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e": 6, // USDT
+  "0xceba9300f2b948710d2653dd7b07f33a8b32118c": 6, // USDC
+  "0x765de816845861e75a25fca122bb6898b8b1282a": 18, // cUSD
+};
+const decimalsFor = (a: string | null) => DECIMALS[(a ?? "").toLowerCase()] ?? 6;
 
 type Prepared = {
   s: DueSchedule;
@@ -89,7 +100,7 @@ Deno.serve(async () => {
   // One cached call per environment, not per run: confirm cNGN still lists Celo
   // as enabled before any bank payout is attempted. Wallet payouts touch no
   // cNGN API at all and must not be blocked by this.
-  if (schedules.some((s) => s.payout_type === "ngn_bank")) {
+  if (schedules.some((s: DueSchedule) => s.payout_type === "ngn_bank")) {
     try {
       await assertCeloSupported();
     } catch (e) {
@@ -170,13 +181,30 @@ async function prepare(
     if (!r.funded) return await fail("sender funding wallet is short", "skipped");
     if (!r.approved) return await fail("sender allowance revoked or too low", "skipped");
 
-    // 2. Backstop the on-chain envelope with our own ceiling.
-    if (amountIn > BigInt(LIMITS.maxRunAmountUsdt) * 1_000_000n) {
-      return await fail(`amount exceeds backend cap of ${LIMITS.maxRunAmountUsdt} USDT`);
+    // 2. Backstop the on-chain envelope with our own ceiling, at the funding
+    //    asset's own scale.
+    const scale = 10n ** BigInt(decimalsFor(s.token_address));
+    if (amountIn > BigInt(LIMITS.maxRunAmountUsdt) * scale) {
+      return await fail(`amount exceeds backend cap of ${LIMITS.maxRunAmountUsdt}`);
     }
 
-    // 3. One pool, ~$95k deep. Confirm it can still fill this before spending
-    //    gas — and reuse the quote it computed rather than asking twice.
+    // 3. A Direct run converts nothing: same asset in and out. There is no
+    //    price to quote, no pool to check and no floor to clear, so the whole
+    //    market-facing half of a run simply does not apply.
+    if (s.payout_type === "direct") {
+      await db.from("runs").update({ status: "swapping" }).eq("id", run.id);
+      return {
+        prepared: {
+          s,
+          runId: run.id,
+          onchainId,
+          quote: { amountOut: amountIn, minOut: 0n, rateE6: 0n },
+        },
+      };
+    }
+
+    // One pool, ~$95k deep. Confirm it can still fill this before spending gas
+    // — and reuse the quote it computed rather than asking twice.
     const health = await liquidityIsHealthy(amountIn);
     if (!health.ok) {
       return await fail(`pool impact ${health.impactBps}bps exceeds limit`, "skipped");
@@ -254,6 +282,7 @@ async function settle(p: Prepared) {
     const { hash, receipt } = await executeRun(onchainId, quote.minOut);
 
     await db.from("runs").update({
+      token_address: s.token_address,
       status: s.payout_type === "ngn_bank" ? "redeeming" : "delivered",
       tx_hash: hash,
       block_number: Number(receipt.blockNumber),

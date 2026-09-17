@@ -110,10 +110,10 @@ export function useRunnability(onchainId: Numeric | null) {
 /// This is the outermost cap on everything Remesso can ever do, and it is
 /// revocable without our cooperation — so the UI shows it as a running balance
 /// rather than a setup step that disappears once completed.
-export function useAllowance() {
+export function useAllowance(token: `0x${string}` = USDT.address) {
   const { address } = useAccount();
   return useReadContract({
-    address: USDT.address,
+    address: token,
     abi: erc20Abi,
     functionName: "allowance",
     args: address ? [address, EXECUTOR_ADDRESS] : undefined,
@@ -121,10 +121,12 @@ export function useAllowance() {
   });
 }
 
-export function useUsdtBalance() {
+/// Balance of the schedule's funding asset — USDT by default, but a Direct
+/// schedule may be funded in USDC or cUSD.
+export function useUsdtBalance(token: `0x${string}` = USDT.address) {
   const { address } = useAccount();
   return useReadContract({
-    address: USDT.address,
+    address: token,
     abi: erc20Abi,
     functionName: "balanceOf",
     args: address ? [address] : undefined,

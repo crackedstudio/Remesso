@@ -19,6 +19,39 @@ function toUnits(v: bigint | string | number): bigint {
   return BigInt(v);
 }
 
+/// Format base units for display.
+///
+/// `decimals` is the token's own scale and must be passed — USDT and USDC are
+/// 6dp while cUSD is 18dp, so a hardcoded 6 is wrong for a third of the assets
+/// this app accepts.
+export function formatUnits(
+  v: bigint | string | number,
+  decimals: number,
+  dp = 2,
+): string {
+  const n = toUnits(v);
+  const scale = 10n ** BigInt(decimals);
+  const neg = n < 0n;
+  const abs = neg ? -n : n;
+  const whole = abs / scale;
+  const frac = (abs % scale).toString().padStart(decimals, "0").slice(0, dp);
+  const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${neg ? "-" : ""}${grouped}${dp > 0 ? `.${frac}` : ""}`;
+}
+
+/// Parse a user-typed decimal into base units at the token's own scale, without
+/// going through a float — "0.1" as a Number is not exact, and at scale that is
+/// money quietly disappearing.
+export function parseUnits(input: string, decimals: number): bigint {
+  const s = input.trim();
+  if (!/^\d*\.?\d*$/.test(s) || s === "" || s === ".") throw new Error("enter a number");
+  const [whole, frac = ""] = s.split(".");
+  if (frac.length > decimals) throw new Error(`at most ${decimals} decimal places`);
+  return BigInt(whole || "0") * 10n ** BigInt(decimals) +
+    BigInt(frac.padEnd(decimals, "0") || "0");
+}
+
+/// @deprecated pass the token's decimals explicitly — see formatUnits.
 export function formatUnits6(v: bigint | string | number, dp = 2): string {
   const n = toUnits(v);
   const neg = n < 0n;

@@ -46,7 +46,8 @@ blast radius grows quietly.
 
 | | |
 |---|---|
-| `RemessoExecutorV2` | `0x218414aD37206fd4cFD6C47947574708DB0e95D2` — **live**, verified |
+| `RemessoExecutorV3` | `0xd2e68acd875fb1b3a98dc0d72659910b05e7e08f` — **live**, verified. Adds the Direct (no-swap) rail. |
+| `RemessoExecutorV2` | `0x218414aD37206fd4cFD6C47947574708DB0e95D2` — superseded 2026-09-17 |
 | `RemessoExecutor` V1 | `0xC7eF75fC6283aB3b810fa4dE270F074C47761189` — retired 2026-09-15, schedule #1 cancelled, allowance revoked. Has the defects listed below; do not point anything at it. |
 | owner | `0xcDEA4Cc4191Ec9A5d8fD1a6B17e3F4C84E993Ae2` — cold, deploy only |
 | executor (hot) | `0x3c754AD31e802D5fA65487f460dED65Aba749Cd1` — cron key, gas only |
@@ -107,6 +108,19 @@ These each cost real time to find. None are visible from the code alone.
 - **`CNGN_EGRESS_PROXY_URL`** points at a tinyproxy box whose IP is whitelisted
   with cNGN. Rebuild it with `infra/setup-cngn-proxy.sh`, then whitelist the new
   address — cNGN takes static IPs only, no CIDR.
+
+## Two rails
+
+`Direct` forwards the funding asset itself — sender funds USDT, USDC or cUSD and
+the recipient receives that same asset. No swap, no floor, no pool. This exists
+because **MiniPay displays only USDm (cUSD), USDC and USDT**: a recipient paid
+in cNGN sees nothing and cannot add a custom token.
+
+The swap rails (`Wallet`, `BankRedemption`) still convert to cNGN and remain the
+path for bank payouts, where no wallet is involved.
+
+**Decimals are not uniform.** USDT and USDC are 6dp, cUSD is 18dp, cNGN is 6dp —
+all verified on-chain. `lib/config.ts` holds the map; never hardcode 6.
 
 ## Invariants — do not break
 

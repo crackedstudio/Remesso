@@ -17,6 +17,7 @@ export const executorAbi = [
       { name: "expiresAt", type: "uint64" },
       { name: "firstRunAt", type: "uint64" },
       { name: "payoutType", type: "uint8" },
+      { name: "token", type: "address" },
     ],
     outputs: [{ name: "id", type: "uint256" }],
   },
@@ -65,6 +66,7 @@ export const executorAbi = [
           { name: "payoutType", type: "uint8" },
           { name: "active", type: "bool" },
           { name: "cancelled", type: "bool" },
+          { name: "token", type: "address" },
         ],
       },
     ],
@@ -129,8 +131,9 @@ export const erc20Abi = [
   },
 ] as const;
 
-/// Matches the PayoutType enum in RemessoExecutor.sol.
-export const PayoutType = { Wallet: 0, BankRedemption: 1 } as const;
+/// Matches the PayoutType enum in RemessoExecutorV3.sol.
+/// Direct forwards the funding asset with no swap.
+export const PayoutType = { Wallet: 0, BankRedemption: 1, Direct: 2 } as const;
 
 /// QuoterV2. `quoteExactInputSingle` is non-view (it reverts to return data),
 /// so it must be simulated rather than read.

@@ -1,4 +1,4 @@
-export type PayoutKind = "wallet" | "ngn_bank";
+export type PayoutKind = "direct" | "wallet" | "ngn_bank";
 
 /// A numeric(78,0) column. PostgREST sends these as JSON numbers, not strings —
 /// declaring them `string` is a lie TypeScript will happily propagate until
@@ -35,6 +35,7 @@ export type Schedule = {
   amount_in: Numeric;
   interval_seconds: number;
   min_rate_e6: Numeric;
+  token_address: string | null;
   max_runs: number;
   expires_at: string | null;
   next_run_at: string | null;
@@ -61,6 +62,7 @@ export type Run = {
   amount_in: Numeric;
   amount_out: Numeric | null;
   quoted_rate_e6: Numeric | null;
+  token_address?: string | null;
   min_out: string | null;
   tx_hash: string | null;
   block_number: number | null;

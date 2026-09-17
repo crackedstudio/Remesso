@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { isAddress } from "viem";
 import { fetchBanks, verifyAccount, type AccountDetails } from "@/lib/api";
-import { BANK_PAYOUTS_ENABLED } from "@/lib/config";
+import { BANK_PAYOUTS_ENABLED, DIRECT_TOKENS, type TokenInfo } from "@/lib/config";
+import { isMiniPay } from "@/lib/wagmi";
 import type { PayoutKind } from "@/lib/types";
 
 export type RecipientDraft = {
@@ -14,21 +15,26 @@ export type RecipientDraft = {
   bankCode: string;
   accountNumber: string;
   accountName: string;
+  /// Direct rail only: which stablecoin the recipient actually receives.
+  token: TokenInfo;
 };
 
 export const emptyRecipient: RecipientDraft = {
   displayName: "",
-  payoutType: "wallet",
+  payoutType: "direct",
   walletAddress: "",
   bankCode: "",
   accountNumber: "",
   accountName: "",
+  token: DIRECT_TOKENS[0], // USDT — the one every MiniPay user already holds
 };
 
 export function recipientIsComplete(r: RecipientDraft): boolean {
   if (!r.displayName.trim()) return false;
-  if (r.payoutType === "wallet") return isAddress(r.walletAddress);
-  return Boolean(r.bankCode && /^[0-9]{10}$/.test(r.accountNumber) && r.accountName);
+  if (r.payoutType === "ngn_bank") {
+    return Boolean(r.bankCode && /^[0-9]{10}$/.test(r.accountNumber) && r.accountName);
+  }
+  return isAddress(r.walletAddress);
 }
 
 export function RecipientStep({
@@ -54,21 +60,62 @@ export function RecipientStep({
 
       <div>
         <label className="label">How should they receive it?</label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
+          <Choice
+            active={value.payoutType === "direct"}
+            onClick={() => set({ payoutType: "direct" })}
+            title="Stablecoin"
+            subtitle="Visible in MiniPay"
+          />
           <Choice
             active={value.payoutType === "wallet"}
             onClick={() => set({ payoutType: "wallet" })}
-            title="Wallet"
-            subtitle="cNGN to their address"
+            title="cNGN"
+            subtitle="Not shown in MiniPay"
           />
           <Choice
             active={value.payoutType === "ngn_bank"}
             onClick={() => BANK_PAYOUTS_ENABLED && set({ payoutType: "ngn_bank" })}
             disabled={!BANK_PAYOUTS_ENABLED}
-            title="Bank account"
-            subtitle={BANK_PAYOUTS_ENABLED ? "Naira, via cNGN" : "Unavailable"}
+            title="Bank"
+            subtitle={BANK_PAYOUTS_ENABLED ? "Naira" : "Unavailable"}
           />
         </div>
+
+        {value.payoutType === "direct" && (
+          <div className="mt-3">
+            <label className="label">Which asset</label>
+            <div className="grid grid-cols-3 gap-2">
+              {DIRECT_TOKENS.map((t) => (
+                <button
+                  key={t.symbol}
+                  type="button"
+                  onClick={() => set({ token: t })}
+                  className={`rounded-lg border px-3 py-2 text-sm transition ${
+                    value.token.symbol === t.symbol
+                      ? "border-ink bg-ink text-white"
+                      : "border-black/15 bg-white hover:bg-black/[0.03]"
+                  }`}
+                >
+                  {t.symbol}
+                </button>
+              ))}
+            </div>
+            <p className="hint">
+              No conversion happens — you send {value.token.symbol} and they receive
+              {" "}{value.token.symbol}. All three show up in MiniPay.
+            </p>
+          </div>
+        )}
+
+        {/* The honest reason the cNGN option is second, not first. */}
+        {value.payoutType === "wallet" && (
+          <p className="hint text-amber-700">
+            MiniPay only displays USDT, USDC and cUSD. A recipient paid in cNGN
+            will see nothing in their wallet, and MiniPay has no way to add a
+            custom token. Prefer Stablecoin unless they use another wallet.
+          </p>
+        )}
         {!BANK_PAYOUTS_ENABLED && (
           <p className="hint">
             Bank payouts are switched off because the cNGN redemption address has not been
@@ -78,7 +125,7 @@ export function RecipientStep({
         )}
       </div>
 
-      {value.payoutType === "wallet" ? (
+      {value.payoutType !== "ngn_bank" ? (
         <div>
           <label className="label">Recipient wallet</label>
           <input

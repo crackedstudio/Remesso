@@ -11,21 +11,63 @@ export const RPC_URL =
 export const EXECUTOR_ADDRESS =
   (process.env.NEXT_PUBLIC_REMESSO_EXECUTOR_ADDRESS ?? "") as `0x${string}`;
 
-/// Both tokens are 6dp. cNGN is *not* Mento's NGNm, which is 18dp — confusing
-/// them is a factor of 10^12, so the decimals are pinned next to the address.
-export const USDT = {
-  address: (process.env.NEXT_PUBLIC_USDT_ADDRESS ??
-    "0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e") as `0x${string}`,
-  decimals: 6,
-  symbol: "USDT",
-} as const;
+export type TokenInfo = {
+  address: `0x${string}`;
+  symbol: string;
+  decimals: number;
+  /// Shown in MiniPay's own balance list. A recipient paid in anything else
+  /// sees nothing, and MiniPay has no custom-token import.
+  miniPayVisible: boolean;
+};
 
-export const CNGN = {
+/// Decimals are pinned beside every address on purpose. They are NOT uniform:
+/// USDT and USDC are 6dp, cUSD is 18dp. Assuming one for the other is a factor
+/// of 10^12 — the same trap cNGN (6dp) and Mento's NGNm (18dp) set.
+/// All four verified on-chain 2026-09-17.
+export const USDT: TokenInfo = {
+  address: (process.env.NEXT_PUBLIC_USDT_ADDRESS ??
+    "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e") as `0x${string}`,
+  symbol: "USDT",
+  decimals: 6,
+  miniPayVisible: true,
+};
+
+export const USDC: TokenInfo = {
+  address: "0xcebA9300f2b948710d2653dD7B07f33A8B32118C",
+  symbol: "USDC",
+  decimals: 6,
+  miniPayVisible: true,
+};
+
+/// On-chain symbol is "USDm"; everyone still calls it cUSD.
+export const CUSD: TokenInfo = {
+  address: "0x765DE816845861e75A25fCA122bb6898B8B1282a",
+  symbol: "cUSD",
+  decimals: 18,
+  miniPayVisible: true,
+};
+
+export const CNGN: TokenInfo = {
   address: (process.env.NEXT_PUBLIC_CNGN_ADDRESS ??
     "0xF6829D7393dAe24509eb1E52eE8e572e2E271a4f") as `0x${string}`,
-  decimals: 6,
   symbol: "cNGN",
-} as const;
+  decimals: 6,
+  miniPayVisible: false,
+};
+
+/// Assets the Direct rail accepts — sender funds in one of these and the
+/// recipient receives the same asset, unswapped.
+export const DIRECT_TOKENS: TokenInfo[] = [USDT, USDC, CUSD];
+
+const BY_ADDRESS: Record<string, TokenInfo> = Object.fromEntries(
+  [USDT, USDC, CUSD, CNGN].map((t) => [t.address.toLowerCase(), t]),
+);
+
+/// Resolve a token by address. Falls back to USDT because every pre-V3 schedule
+/// was funded in it; an unknown address would otherwise format as 6dp silently.
+export function tokenFor(address?: string | null): TokenInfo {
+  return (address && BY_ADDRESS[address.toLowerCase()]) || USDT;
+}
 
 /// Uniswap V3 is the only cNGN venue on Celo. The frontend touches it purely to
 /// quote a live rate, so the sender's floor is set against the real market

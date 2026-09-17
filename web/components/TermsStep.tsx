@@ -1,7 +1,8 @@
 "use client";
 
 import { useMarketRate } from "@/lib/hooks";
-import { INTERVALS, formatUnits6, parseUnits6, rateToNairaPerUsd } from "@/lib/format";
+import { INTERVALS, formatUnits, parseUnits, rateToNairaPerUsd } from "@/lib/format";
+import { CNGN, type TokenInfo } from "@/lib/config";
 
 export type TermsDraft = {
   amount: string;          // decimal USDT as typed
@@ -29,9 +30,11 @@ export const defaultTerms: TermsDraft = {
   startNow: true,
 };
 
-export function amountInUnits(t: TermsDraft): bigint | null {
+/// Parsed at the funding token's own scale — cUSD is 18dp while USDT and USDC
+/// are 6dp, so a fixed 6 would be wrong by 10^12 for a third of the assets.
+export function amountInUnits(t: TermsDraft, decimals: number): bigint | null {
   try {
-    const v = parseUnits6(t.amount);
+    const v = parseUnits(t.amount, decimals);
     return v > 0n ? v : null;
   } catch {
     return null;
@@ -41,13 +44,19 @@ export function amountInUnits(t: TermsDraft): bigint | null {
 export function TermsStep({
   value,
   onChange,
+  token,
+  converts,
 }: {
   value: TermsDraft;
   onChange: (t: TermsDraft) => void;
+  token: TokenInfo;
+  /// Direct schedules move the asset untouched, so there is no rate, no floor
+  /// and nothing to quote.
+  converts: boolean;
 }) {
   const set = (patch: Partial<TermsDraft>) => onChange({ ...value, ...patch });
-  const amount = amountInUnits(value);
-  const market = useMarketRate(amount ?? 0n);
+  const amount = amountInUnits(value, token.decimals);
+  const market = useMarketRate(converts ? (amount ?? 0n) : 0n);
 
   const floorE6 = market.rateE6
     ? (market.rateE6 * BigInt(100 - value.floorPercent)) / 100n
@@ -66,14 +75,14 @@ export function TermsStep({
             onChange={(e) => set({ amount: e.target.value })}
           />
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-black/40">
-            USDT
+            {token.symbol}
           </span>
         </div>
-        {market.rateE6 && amount && (
+        {converts && market.rateE6 && amount && (
           <p className="hint">
             About{" "}
             <span className="mono text-ink">
-              ₦{formatUnits6((amount * market.rateE6) / 1_000_000n, 0)}
+              ₦{formatUnits((amount * market.rateE6) / 1_000_000n, CNGN.decimals, 0)}
             </span>{" "}
             at today&rsquo;s rate of ₦{rateToNairaPerUsd(market.rateE6).toFixed(2)} per USDT.
           </p>
@@ -100,7 +109,7 @@ export function TermsStep({
         </div>
       </div>
 
-      <div>
+      <div className={converts ? "" : "hidden"}>
         <label className="label">Rate floor</label>
         <input
           type="range"

@@ -8,11 +8,11 @@ import { waitForTransactionReceipt } from "wagmi/actions";
 import { wagmiConfig } from "@/lib/wagmi";
 import { txOverrides } from "@/lib/tx";
 import { executorAbi } from "@/lib/abi";
-import { EXECUTOR_ADDRESS, EXPLORER } from "@/lib/config";
+import { EXECUTOR_ADDRESS, EXPLORER, CNGN, tokenFor } from "@/lib/config";
 import { supabase } from "@/lib/supabase";
 import { useRunnability, useRuns, useSchedule } from "@/lib/hooks";
 import {
-  formatUnits6,
+  formatUnits,
   intervalLabel,
   rateToNairaPerUsd,
   relativeTime,
@@ -103,7 +103,10 @@ export default function ScheduleDetailPage() {
 
         <dl className="mt-4 divide-y divide-black/5 text-sm">
           <Row label="Each transfer">
-            <span className="mono">{formatUnits6(schedule.amount_in)} USDT</span>
+            <span className="mono">
+              {formatUnits(schedule.amount_in, tokenFor(schedule.token_address).decimals)}{" "}
+              {tokenFor(schedule.token_address).symbol}
+            </span>
           </Row>
           <Row label="Frequency">{intervalLabel(schedule.interval_seconds)}</Row>
           <Row label="Rate floor">
@@ -185,11 +188,16 @@ function RunRow({ run, isBank }: { run: Run; isBank: boolean }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm">
-            <span className="mono">{formatUnits6(run.amount_in)}</span> USDT
-            {run.amount_out && (
+            <span className="mono">
+              {formatUnits(run.amount_in, tokenFor(run.token_address).decimals)}
+            </span>{" "}
+            {tokenFor(run.token_address).symbol}
+            {run.amount_out && run.amount_out !== run.amount_in && (
               <>
                 {" → "}
-                <span className="mono text-naira">₦{formatUnits6(run.amount_out, 0)}</span>
+                <span className="mono text-naira">
+                  ₦{formatUnits(run.amount_out, CNGN.decimals, 0)}
+                </span>
               </>
             )}
           </p>

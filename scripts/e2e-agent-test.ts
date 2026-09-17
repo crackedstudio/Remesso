@@ -54,7 +54,8 @@ const execAbi = [
   { type: "function", name: "createSchedule", stateMutability: "nonpayable",
     inputs: [{name:"destination",type:"address"},{name:"amountIn",type:"uint128"},{name:"interval",type:"uint64"},
              {name:"minRateE6",type:"uint96"},{name:"maxRuns",type:"uint32"},{name:"expiresAt",type:"uint64"},
-             {name:"firstRunAt",type:"uint64"},{name:"payoutType",type:"uint8"}],
+             {name:"firstRunAt",type:"uint64"},{name:"payoutType",type:"uint8"},
+             {name:"token",type:"address"}],
     outputs: [{name:"id",type:"uint256"}] },
   { type: "function", name: "setScheduleActive", stateMutability: "nonpayable",
     inputs: [{name:"id",type:"uint256"},{name:"active",type:"bool"}], outputs: [] },
@@ -63,11 +64,12 @@ const execAbi = [
   { type: "function", name: "schedulesOf", stateMutability: "view",
     inputs: [{name:"s",type:"address"}], outputs: [{type:"uint256[]"}] },
   { type: "function", name: "getSchedule", stateMutability: "view", inputs: [{name:"id",type:"uint256"}],
-    outputs: [{type:"tuple",components:[{name:"sender",type:"address"},{name:"interval",type:"uint64"},
-      {name:"maxRuns",type:"uint32"},{name:"destination",type:"address"},{name:"nextRunAt",type:"uint64"},
-      {name:"runsExecuted",type:"uint32"},{name:"amountIn",type:"uint128"},{name:"minRateE6",type:"uint96"},
+    outputs: [{type:"tuple",components:[
+      {name:"sender",type:"address"},{name:"interval",type:"uint64"},{name:"maxRuns",type:"uint32"},
+      {name:"destination",type:"address"},{name:"nextRunAt",type:"uint64"},{name:"runsExecuted",type:"uint32"},
+      {name:"amountIn",type:"uint128"},{name:"minRateE6",type:"uint96"},{name:"poolFee",type:"uint24"},
       {name:"expiresAt",type:"uint64"},{name:"payoutType",type:"uint8"},{name:"active",type:"bool"},
-      {name:"cancelled",type:"bool"}]}] },
+      {name:"cancelled",type:"bool"},{name:"token",type:"address"}]}] },
   { type: "event", name: "ScheduleCreated",
     inputs: [{name:"id",type:"uint256",indexed:true},{name:"sender",type:"address",indexed:true},
              {name:"destination",type:"address",indexed:true},{name:"amountIn",type:"uint128"},
@@ -96,9 +98,26 @@ const sb = async (path: string, init: RequestInit = {}) => {
   return t ? JSON.parse(t) : null;
 };
 
-const tick = () => fetch(`${SB_URL}/functions/v1/execute-due-runs`, {
-  method: "POST", headers: { Authorization: `Bearer ${SB_KEY}` },
-}).then((r) => r.json());
+/// Invoke the executor once, the way pg_cron does.
+///
+/// Retries on a non-JSON body: a cold start or a gateway hiccup returns an HTML
+/// error page, and letting that abort the run means a transient blip reads as a
+/// failed test.
+async function tick(): Promise<{ processed?: number }> {
+  for (let i = 0; i < 4; i++) {
+    const r = await fetch(`${SB_URL}/functions/v1/execute-due-runs`, {
+      method: "POST", headers: { Authorization: `Bearer ${SB_KEY}` },
+    });
+    const body = await r.text();
+    try {
+      return JSON.parse(body);
+    } catch {
+      if (i === 3) throw new Error(`executor returned non-JSON: ${body.slice(0, 120)}`);
+      await sleep(2000 * (i + 1));
+    }
+  }
+  return {};
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const u6 = (v: bigint | number | string) => (Number(v) / 1e6).toFixed(6);
@@ -112,7 +131,7 @@ const check = (name: string, ok: boolean, detail = "") => {
 };
 
 // --- fixtures --------------------------------------------------------------
-let senderId: string, recipientId: string;
+let senderId: string, recipientId: string, directRecipientId: string;
 
 async function fixtures() {
   const addr = account.address.toLowerCase();
@@ -138,11 +157,15 @@ async function fixtures() {
   const r = await sb("recipients", { method: "POST", body: JSON.stringify({
     sender_id: senderId, display_name: "e2e self", payout_type: "wallet", wallet_address: addr }) });
   recipientId = r[0].id;
+  const d = await sb("recipients", { method: "POST", body: JSON.stringify({
+    sender_id: senderId, display_name: "e2e direct", payout_type: "direct", wallet_address: addr }) });
+  directRecipientId = d[0].id;
 }
 
 /// Create a schedule on chain and mirror it, the way the frontend does.
 async function makeSchedule(opts: {
-  amountIn: bigint; minRateE6: bigint; maxRuns: number; label: string; active?: boolean;
+  amountIn: bigint; minRateE6: bigint; maxRuns: number; label: string;
+  active?: boolean; direct?: boolean;
 }) {
   const hash = await wallet.writeContract({
     address: EXECUTOR, abi: execAbi, functionName: "createSchedule",
@@ -157,15 +180,18 @@ async function makeSchedule(opts: {
       opts.maxRuns,
       BigInt(Math.floor(Date.now() / 1000) + 30 * 24 * 3600),
       0n,
-      0,
+      opts.direct ? 2 : 0, // 2 = Direct (no swap), 0 = Wallet (swap to cNGN)
+      USDT,
     ],
   });
   const receipt = await pub.waitForTransactionReceipt({ hash });
   const [ev] = parseEventLogs({ abi: execAbi, eventName: "ScheduleCreated", logs: receipt.logs });
   const onchainId = ev.args.id.toString();
   const row = await sb("schedules", { method: "POST", body: JSON.stringify({
-    sender_id: senderId, recipient_id: recipientId, onchain_id: onchainId,
-    executor_address: EXECUTOR,
+    sender_id: senderId,
+    recipient_id: opts.direct ? directRecipientId : recipientId,
+    onchain_id: onchainId,
+    executor_address: EXECUTOR, token_address: USDT,
     amount_in: opts.amountIn.toString(), interval_seconds: 3600,
     min_rate_e6: opts.minRateE6.toString(), max_runs: opts.maxRuns,
     status: "active", label: opts.label, next_run_at: new Date().toISOString() }) });
@@ -322,6 +348,29 @@ async function main() {
     check("8 maxRuns=1 retires each schedule on chain",
       caps.every((c) => c.runsExecuted === 1 && c.active === false),
       caps.map((c) => `${c.runsExecuted}run/active=${c.active}`).join(" "));
+  }
+
+  // -- 8b. the Direct rail -------------------------------------------------
+  // No swap: the recipient receives the funding asset itself. This is the rail
+  // that works in MiniPay, where cNGN is invisible.
+  {
+    const before = await pub.readContract({
+      address: USDT, abi: erc20, functionName: "balanceOf", args: [account.address],
+    });
+    const s2 = await makeSchedule({
+      amountIn: 100_000n, minRateE6: 0n, maxRuns: 1, label: "e2e direct", direct: true,
+    });
+    created.push(s2.onchainId); rows.push(s2.rowId);
+    await tick(); await sleep(4000);
+    const [r] = await runsFor(s2.rowId);
+    const after = await pub.readContract({
+      address: USDT, abi: erc20, functionName: "balanceOf", args: [account.address],
+    });
+    // Destination is the test wallet itself, so a Direct run is a self-transfer:
+    // the balance must be unchanged, and no cNGN can have been produced.
+    check("8b Direct rail delivers the funding asset, no swap",
+      r?.status === "delivered" && after === before,
+      r ? `${r.status} ${r.failure_reason ?? ""} | USDT ${u6(before)} -> ${u6(after)}` : "no run row");
   }
 
   // -- 9. idempotency ------------------------------------------------------

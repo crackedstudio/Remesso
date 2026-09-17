@@ -10,14 +10,16 @@ import { wagmiConfig } from "@/lib/wagmi";
 import { txOverrides } from "@/lib/tx";
 import { erc20Abi, executorAbi, PayoutType } from "@/lib/abi";
 import {
+  CNGN,
   CNGN_REDEMPTION_ADDRESS,
   EXECUTOR_ADDRESS,
   USDT,
   isConfigured,
+  type TokenInfo,
 } from "@/lib/config";
 import { supabase, ensureSender } from "@/lib/supabase";
 import { useAllowance, useMarketRate, useUsdtBalance } from "@/lib/hooks";
-import { formatUnits6, intervalLabel, rateToNairaPerUsd } from "@/lib/format";
+import { formatUnits, intervalLabel, rateToNairaPerUsd } from "@/lib/format";
 import {
   RecipientStep,
   emptyRecipient,
@@ -40,9 +42,13 @@ export default function NewSchedulePage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const amountIn = amountInUnits(terms);
-  const { data: allowance } = useAllowance();
-  const { data: balance } = useUsdtBalance();
+  // Direct schedules move the recipient's chosen asset; the swap rails always
+  // move USDT, whatever the recipient ends up holding.
+  const fundingToken: TokenInfo = recipient.payoutType === "direct" ? recipient.token : USDT;
+  const converts = recipient.payoutType !== "direct";
+  const amountIn = amountInUnits(terms, fundingToken.decimals);
+  const { data: allowance } = useAllowance(fundingToken.address);
+  const { data: balance } = useUsdtBalance(fundingToken.address);
   const market = useMarketRate(amountIn ?? 0n);
 
   // Unlimited schedules still need a finite allowance. A year of runs is a
@@ -66,18 +72,19 @@ export default function NewSchedulePage() {
     setError(null);
     if (!amountIn || !address) return;
 
-    const floorE6 = market.rateE6
-      ? (market.rateE6 * BigInt(100 - terms.floorPercent)) / 100n
-      : null;
-    if (!floorE6) {
+    // A Direct schedule converts nothing, so it carries no floor.
+    const floorE6 = converts
+      ? (market.rateE6 ? (market.rateE6 * BigInt(100 - terms.floorPercent)) / 100n : null)
+      : 0n;
+    if (floorE6 === null) {
       setError("Could not read a live rate from the pool. Try again in a moment.");
       return;
     }
 
     const destination =
-      recipient.payoutType === "wallet"
-        ? (recipient.walletAddress as `0x${string}`)
-        : (CNGN_REDEMPTION_ADDRESS as `0x${string}`);
+      recipient.payoutType === "ngn_bank"
+        ? (CNGN_REDEMPTION_ADDRESS as `0x${string}`)
+        : (recipient.walletAddress as `0x${string}`);
 
     if (!destination) {
       setError("No destination address. Bank payouts are not configured.");
@@ -100,7 +107,7 @@ export default function NewSchedulePage() {
           display_name: recipient.displayName.trim(),
           payout_type: recipient.payoutType,
           wallet_address:
-            recipient.payoutType === "wallet" ? recipient.walletAddress.toLowerCase() : null,
+            recipient.payoutType === "ngn_bank" ? null : recipient.walletAddress.toLowerCase(),
           bank_code: recipient.payoutType === "ngn_bank" ? recipient.bankCode : null,
           account_number: recipient.payoutType === "ngn_bank" ? recipient.accountNumber : null,
           account_name: recipient.payoutType === "ngn_bank" ? recipient.accountName : null,
@@ -123,6 +130,7 @@ export default function NewSchedulePage() {
           // Schedule ids are per-contract, so a row is only identified by the
           // pair. Without this a redeploy collides with the old contract's ids.
           executor_address: EXECUTOR_ADDRESS,
+          token_address: fundingToken.address,
           amount_in: amountIn.toString(),
           interval_seconds: terms.intervalSeconds,
           min_rate_e6: floorE6.toString(),
@@ -138,7 +146,7 @@ export default function NewSchedulePage() {
       if (needsApproval) {
         setBusy("Approve USDT in your wallet…");
         const approveHash = await writeContractAsync({
-          address: USDT.address,
+          address: fundingToken.address,
           abi: erc20Abi,
           functionName: "approve",
           args: [EXECUTOR_ADDRESS, requiredAllowance],
@@ -161,7 +169,12 @@ export default function NewSchedulePage() {
           terms.maxRuns ? Number(terms.maxRuns) : 0,
           expiresAt,
           terms.startNow ? 0n : BigInt(Math.floor(Date.now() / 1000) + terms.intervalSeconds),
-          recipient.payoutType === "wallet" ? PayoutType.Wallet : PayoutType.BankRedemption,
+          recipient.payoutType === "direct"
+            ? PayoutType.Direct
+            : recipient.payoutType === "wallet"
+              ? PayoutType.Wallet
+              : PayoutType.BankRedemption,
+          fundingToken.address,
         ],
         ...txOverrides(),
       });
@@ -222,12 +235,16 @@ export default function NewSchedulePage() {
 
       <div className="card">
         {step === 0 && <RecipientStep value={recipient} onChange={setRecipient} />}
-        {step === 1 && <TermsStep value={terms} onChange={setTerms} />}
+        {step === 1 && (
+          <TermsStep value={terms} onChange={setTerms} token={fundingToken} converts={converts} />
+        )}
         {step === 2 && (
           <Review
             recipient={recipient}
             terms={terms}
             amountIn={amountIn}
+            token={fundingToken}
+            converts={converts}
             marketRateE6={market.rateE6}
             requiredAllowance={requiredAllowance}
             needsApproval={needsApproval}
@@ -268,6 +285,8 @@ function Review({
   recipient,
   terms,
   amountIn,
+  token,
+  converts,
   marketRateE6,
   requiredAllowance,
   needsApproval,
@@ -276,12 +295,14 @@ function Review({
   recipient: RecipientDraft;
   terms: TermsDraft;
   amountIn: bigint | null;
+  token: TokenInfo;
+  converts: boolean;
   marketRateE6?: bigint;
   requiredAllowance: bigint;
   needsApproval: boolean;
   balance?: bigint;
 }) {
-  const floorE6 = marketRateE6
+  const floorE6 = converts && marketRateE6
     ? (marketRateE6 * BigInt(100 - terms.floorPercent)) / 100n
     : undefined;
   const short = balance !== undefined && amountIn !== null && balance < amountIn;
@@ -292,17 +313,21 @@ function Review({
         <Row label="To">
           {recipient.displayName}
           <span className="block text-xs text-black/50">
-            {recipient.payoutType === "wallet"
-              ? recipient.walletAddress
-              : `${recipient.accountName} · ${recipient.accountNumber}`}
+            {recipient.payoutType === "ngn_bank"
+              ? `${recipient.accountName} · ${recipient.accountNumber}`
+              : recipient.walletAddress}
           </span>
         </Row>
         <Row label="Each transfer">
-          <span className="mono">{amountIn ? formatUnits6(amountIn) : "—"} USDT</span>
+          <span className="mono">
+            {amountIn ? formatUnits(amountIn, token.decimals) : "—"} {token.symbol}
+          </span>
         </Row>
         <Row label="Frequency">{intervalLabel(terms.intervalSeconds)}</Row>
-        <Row label="Rate floor">
-          {floorE6 ? `₦${rateToNairaPerUsd(floorE6).toFixed(0)} per USDT` : "—"}
+        <Row label={converts ? "Rate floor" : "Conversion"}>
+          {!converts
+            ? `None — they receive ${token.symbol}`
+            : floorE6 ? `₦${rateToNairaPerUsd(floorE6).toFixed(0)} per USDT` : "—"}
           <span className="block text-xs text-black/50">
             {terms.floorPercent}% below the current rate. Runs below this are skipped, not
             executed.
@@ -311,7 +336,9 @@ function Review({
         <Row label="Transfers">{terms.maxRuns || "Until you stop it"}</Row>
         <Row label="Expires">{terms.expiresAt}</Row>
         <Row label="You will approve">
-          <span className="mono">{formatUnits6(requiredAllowance)} USDT</span>
+          <span className="mono">
+            {formatUnits(requiredAllowance, token.decimals)} {token.symbol}
+          </span>
           <span className="block text-xs text-black/50">
             {needsApproval
               ? "One approval covers every run. Revoke it any time to stop everything."
@@ -322,7 +349,8 @@ function Review({
 
       {short && (
         <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
-          Your wallet holds {formatUnits6(balance!)} USDT, less than one transfer. The
+          Your wallet holds {formatUnits(balance!, token.decimals)} {token.symbol}, less than
+          one transfer. The
           schedule will be created but runs will be skipped until you top up.
         </p>
       )}

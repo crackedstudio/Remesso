@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useAccount } from "wagmi";
 import { useAllowance, useSchedules, useUsdtBalance } from "@/lib/hooks";
-import { formatUnits6, intervalLabel, relativeTime, shortAddress } from "@/lib/format";
+import { formatUnits, intervalLabel, relativeTime, shortAddress } from "@/lib/format";
 import { SchedulePill } from "@/components/StatusPill";
-import { isConfigured } from "@/lib/config";
+import { isConfigured, tokenFor, USDT } from "@/lib/config";
 import { one, type Schedule } from "@/lib/types";
 
 export default function SchedulesPage() {
@@ -43,12 +43,12 @@ export default function SchedulesPage() {
       <div className="card">
         <div className="flex items-baseline justify-between">
           <span className="label mb-0">Your USDT</span>
-          <span className="mono text-lg">{balance !== undefined ? formatUnits6(balance) : "—"}</span>
+          <span className="mono text-lg">{balance !== undefined ? formatUnits(balance, USDT.decimals) : "—"}</span>
         </div>
         <div className="mt-3 flex items-baseline justify-between border-t border-black/5 pt-3">
           <span className="label mb-0">Authorised to Remesso</span>
           <span className="mono text-lg">
-            {allowance !== undefined ? formatUnits6(allowance) : "—"}
+            {allowance !== undefined ? formatUnits(allowance, USDT.decimals) : "—"}
           </span>
         </div>
         {/* The allowance is the sender's kill switch, so it is stated as one. */}
@@ -103,7 +103,10 @@ function ScheduleCard({ schedule }: { schedule: Schedule }) {
 
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 border-t border-black/5 pt-3 text-xs text-black/60">
           <span>
-            <span className="mono text-sm text-ink">{formatUnits6(schedule.amount_in)}</span> USDT
+            <span className="mono text-sm text-ink">
+              {formatUnits(schedule.amount_in, tokenFor(schedule.token_address).decimals)}
+            </span>{" "}
+            {tokenFor(schedule.token_address).symbol}
           </span>
           <span>{intervalLabel(schedule.interval_seconds)}</span>
           <span>
