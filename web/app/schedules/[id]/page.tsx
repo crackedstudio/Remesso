@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useWriteContract } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 import { wagmiConfig } from "@/lib/wagmi";
+import { txOverrides } from "@/lib/tx";
 import { executorAbi } from "@/lib/abi";
 import { EXECUTOR_ADDRESS, EXPLORER } from "@/lib/config";
 import { supabase } from "@/lib/supabase";
@@ -52,12 +53,14 @@ export default function ScheduleDetailPage() {
               abi: executorAbi,
               functionName: "cancelSchedule",
               args: [BigInt(schedule.onchain_id)],
+              ...txOverrides(),
             })
           : await writeContractAsync({
               address: EXECUTOR_ADDRESS,
               abi: executorAbi,
               functionName: "setScheduleActive",
               args: [BigInt(schedule.onchain_id), action === "resume"],
+              ...txOverrides(),
             });
       await waitForTransactionReceipt(wagmiConfig, { hash });
 

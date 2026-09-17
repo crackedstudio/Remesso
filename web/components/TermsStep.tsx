@@ -8,16 +8,24 @@ export type TermsDraft = {
   intervalSeconds: number;
   floorPercent: number;    // how far below market the sender will accept
   maxRuns: string;         // "" = unlimited
-  expiresAt: string;       // yyyy-mm-dd, "" = never
+  expiresAt: string;       // yyyy-mm-dd — required; V2 rejects a schedule with no expiry
   startNow: boolean;
 };
+
+/// yyyy-mm-dd, `days` from now.
+function isoDate(days: number): string {
+  return new Date(Date.now() + days * 86400_000).toISOString().slice(0, 10);
+}
 
 export const defaultTerms: TermsDraft = {
   amount: "",
   intervalSeconds: INTERVALS[2].seconds, // monthly
   floorPercent: 3,
   maxRuns: "12",
-  expiresAt: "",
+  // V2 requires every schedule to expire, capped at MAX_LIFETIME (365 days).
+  // A floor rate that never has to be re-consented is the stale-floor defect
+  // the security review found, so "never" is no longer offered.
+  expiresAt: isoDate(330),
   startNow: true,
 };
 
@@ -134,15 +142,21 @@ export function TermsStep({
           <p className="hint">Blank runs until you stop it.</p>
         </div>
         <div>
-          <label className="label">Stop after</label>
+          <label className="label">Expires on</label>
           <input
             type="date"
             className="field"
             value={value.expiresAt}
-            min={new Date(Date.now() + 86400_000).toISOString().slice(0, 10)}
+            min={isoDate(1)}
+            max={isoDate(364)}
             onChange={(e) => set({ expiresAt: e.target.value })}
           />
-          <p className="hint">Optional hard expiry.</p>
+          {/* Not optional, and worth saying why rather than just enforcing it. */}
+          <p className="hint">
+            Required, max 1 year. Your floor rate is fixed for the life of the
+            schedule, so it has to be re-confirmed rather than drift against the
+            market forever.
+          </p>
         </div>
       </div>
 

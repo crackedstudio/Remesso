@@ -7,6 +7,7 @@ import { useAccount, useWriteContract } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 import { parseEventLogs } from "viem";
 import { wagmiConfig } from "@/lib/wagmi";
+import { txOverrides } from "@/lib/tx";
 import { erc20Abi, executorAbi, PayoutType } from "@/lib/abi";
 import {
   CNGN_REDEMPTION_ADDRESS,
@@ -52,7 +53,7 @@ export default function NewSchedulePage() {
   const needsApproval = allowance !== undefined && allowance < requiredAllowance;
 
   const canContinue =
-    step === 0 ? recipientIsComplete(recipient) : step === 1 ? Boolean(amountIn) : true;
+    step === 0 ? recipientIsComplete(recipient) : step === 1 ? Boolean(amountIn && terms.expiresAt) : true;
 
   if (!isConfigured()) {
     return <Warn>The executor contract address is not configured.</Warn>;
@@ -141,6 +142,7 @@ export default function NewSchedulePage() {
           abi: erc20Abi,
           functionName: "approve",
           args: [EXECUTOR_ADDRESS, requiredAllowance],
+          ...txOverrides(),
         });
         setBusy("Waiting for the approval to confirm…");
         await waitForTransactionReceipt(wagmiConfig, { hash: approveHash });
@@ -161,6 +163,7 @@ export default function NewSchedulePage() {
           terms.startNow ? 0n : BigInt(Math.floor(Date.now() / 1000) + terms.intervalSeconds),
           recipient.payoutType === "wallet" ? PayoutType.Wallet : PayoutType.BankRedemption,
         ],
+        ...txOverrides(),
       });
 
       setBusy("Confirming on Celo…");
@@ -306,7 +309,7 @@ function Review({
           </span>
         </Row>
         <Row label="Transfers">{terms.maxRuns || "Until you stop it"}</Row>
-        <Row label="Expires">{terms.expiresAt || "Never"}</Row>
+        <Row label="Expires">{terms.expiresAt}</Row>
         <Row label="You will approve">
           <span className="mono">{formatUnits6(requiredAllowance)} USDT</span>
           <span className="block text-xs text-black/50">
