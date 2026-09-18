@@ -4,6 +4,38 @@
 /// absent: it is `onlyExecutor`, and putting it in the frontend ABI would
 /// suggest the browser has any business calling it.
 export const executorAbi = [
+  // Custom errors. viem can only name a revert whose error is present in the
+  // ABI — without these every failed createSchedule/executeRun surfaces as
+  // "reverted with the following reason:" followed by nothing, and the contract's
+  // actual complaint is discarded at the worst possible moment.
+  { type: "error", name: "NotExecutor", inputs: [] },
+  { type: "error", name: "NotScheduleOwner", inputs: [] },
+  { type: "error", name: "ZeroAddress", inputs: [] },
+  { type: "error", name: "InvalidAmount", inputs: [] },
+  { type: "error", name: "InvalidInterval", inputs: [] },
+  { type: "error", name: "InvalidRate", inputs: [] },
+  { type: "error", name: "ScheduleInactive", inputs: [] },
+  { type: "error", name: "ScheduleIsCancelled", inputs: [] },
+  { type: "error", name: "ScheduleExpired", inputs: [] },
+  { type: "error", name: "RunCapReached", inputs: [] },
+  { type: "error", name: "NotDue", inputs: [{ name: "nextRunAt", type: "uint64" }] },
+  {
+    type: "error",
+    name: "SlippageBoundBelowFloor",
+    inputs: [{ name: "provided", type: "uint256" }, { name: "floor", type: "uint256" }],
+  },
+  {
+    type: "error",
+    name: "InsufficientOutput",
+    inputs: [{ name: "received", type: "uint256" }, { name: "floor", type: "uint256" }],
+  },
+  { type: "error", name: "InvalidDestination", inputs: [] },
+  { type: "error", name: "DegenerateFloor", inputs: [] },
+  { type: "error", name: "ScheduleLifetimeTooLong", inputs: [] },
+  { type: "error", name: "RenounceDisabled", inputs: [] },
+  { type: "error", name: "TokenNotAllowed", inputs: [] },
+  { type: "error", name: "WrongTokenForPayoutType", inputs: [] },
+
   {
     type: "function",
     name: "createSchedule",

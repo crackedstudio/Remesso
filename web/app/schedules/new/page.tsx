@@ -379,9 +379,41 @@ function Warn({ children }: { children: React.ReactNode }) {
 
 /// Wallet errors are long and mostly internal. Surface the part a sender can
 /// act on and keep the rest in the console.
+/// The contract's own complaint, in words a sender can act on.
+///
+/// Keyed off the custom error NAME, which viem only produces because the error
+/// entries are in `executorAbi`. Anything unmapped falls through with the raw
+/// name still attached, so a new error is never silently swallowed.
+const CONTRACT_ERRORS: Record<string, string> = {
+  TokenNotAllowed:
+    "That asset is not enabled for direct transfers. Choose USDT, USDC or cUSD.",
+  WrongTokenForPayoutType:
+    "Converted payouts are funded in USDT only. Either fund this schedule with USDT, or switch the recipient to a direct transfer to send USDC or cUSD as-is.",
+  ScheduleExpired: "Pick an expiry date in the future.",
+  ScheduleLifetimeTooLong: "A schedule can run for at most one year. Pick an earlier expiry date.",
+  InvalidDestination: "That recipient address cannot receive payments.",
+  InvalidAmount: "Enter an amount greater than zero.",
+  InvalidInterval: "Pick a frequency between one second and one year.",
+  InvalidRate: "Could not read a live rate from the pool. Try again in a moment.",
+  DegenerateFloor:
+    "This amount is too small to protect with a floor rate. Increase the amount.",
+  ScheduleInactive: "That schedule has already finished.",
+  ScheduleIsCancelled: "That schedule was cancelled.",
+  NotScheduleOwner: "This schedule belongs to a different wallet.",
+};
+
 function friendly(msg: string): string {
   if (/User rejected|User denied/i.test(msg)) return "You cancelled the signature.";
   if (/insufficient funds/i.test(msg)) return "Not enough CELO to pay gas for this transaction.";
   if (/duplicate key|unique/i.test(msg)) return "That wallet is already registered in another session.";
+
+  for (const [name, text] of Object.entries(CONTRACT_ERRORS)) {
+    if (msg.includes(name)) return text;
+  }
+  // An unmapped custom error still names itself rather than vanishing into a
+  // generic "reverted" with nothing after it.
+  const custom = msg.match(/reverted with the following reason:\s*\n?\s*(\w+)/);
+  if (custom) return `The contract rejected this: ${custom[1]}.`;
+
   return msg.split("\n")[0].slice(0, 300);
 }

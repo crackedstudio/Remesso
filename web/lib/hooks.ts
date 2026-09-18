@@ -1,7 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { useAccount, useReadContract, useSimulateContract } from "wagmi";
+import { isMiniPay } from "./wagmi";
 import { supabase } from "./supabase";
 import { executorAbi, erc20Abi, quoterAbi } from "./abi";
 import { CNGN, EXECUTOR_ADDRESS, POOL_FEE, QUOTER, USDT, isConfigured } from "./config";
@@ -168,4 +170,17 @@ export function useMarketRate(amountIn: bigint) {
     isLoading: sim.isLoading,
     error: sim.error,
   };
+}
+
+/// `isMiniPay()` read safely during render.
+///
+/// The bare function touches `window`, so it is false on the server and true on
+/// the client — returning it straight from a render body makes the two passes
+/// disagree and React discards the server HTML. This resolves after mount
+/// instead, so the first paint matches what the server sent. Event handlers
+/// should keep calling `isMiniPay()` directly; they only ever run on the client.
+export function useIsMiniPay(): boolean {
+  const [inMiniPay, setInMiniPay] = useState(false);
+  useEffect(() => setInMiniPay(isMiniPay()), []);
+  return inMiniPay;
 }
