@@ -177,7 +177,17 @@ async function prepare(
   try {
     // 1. Ask the contract, not the database. It is the authority.
     const r = await runnability(onchainId);
-    if (!r.due) return await fail("not due on-chain", "skipped");
+    if (!r.due) {
+      // Distinguish "not yet" from "never again". A schedule that has spent its
+      // run cap is not due and never will be, so close it here too — the settle
+      // path above only catches schedules this deployment finished itself.
+      const onchain = await getSchedule(onchainId);
+      if (!onchain.active && !onchain.cancelled) {
+        await db.from("schedules").update({ status: "completed" }).eq("id", s.schedule_id);
+        return await fail("schedule completed its final run", "skipped");
+      }
+      return await fail("not due on-chain", "skipped");
+    }
     if (!r.funded) return await fail("sender funding wallet is short", "skipped");
     if (!r.approved) return await fail("sender allowance revoked or too low", "skipped");
 
@@ -291,9 +301,15 @@ async function settle(p: Prepared) {
       settled_at: s.payout_type === "ngn_bank" ? null : new Date().toISOString(),
     }).eq("id", runId);
 
-    const r = await runnability(onchainId);
+    // The contract flips `active` false on the run that reaches `maxRuns`, and
+    // nothing else notices. Without this the mirror keeps the schedule `active`
+    // with a next_run_at that advances forever, the UI shows a finished
+    // schedule as live, and every cycle writes another "not due" skipped row.
+    const [r, onchain] = await Promise.all([runnability(onchainId), getSchedule(onchainId)]);
+    const finished = !onchain.active && !onchain.cancelled;
     await db.from("schedules").update({
       next_run_at: new Date(Number(r.nextRunAt) * 1000).toISOString(),
+      ...(finished ? { status: "completed" as const } : {}),
     }).eq("id", s.schedule_id);
 
     return { schedule: s.schedule_id, status: "ok", hash, awaitingPayout: !!cngnTrxRef };

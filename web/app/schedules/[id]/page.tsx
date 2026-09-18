@@ -39,6 +39,8 @@ export default function ScheduleDetailPage() {
 
   const recipient = one(schedule.recipients);
   const isBank = recipient?.payout_type === "ngn_bank";
+  // Direct moves the funding asset untouched — there is no swap to link to.
+  const converts = recipient?.payout_type !== "direct";
   const live = schedule.status === "active" || schedule.status === "paused";
 
   async function act(action: "pause" | "resume" | "cancel") {
@@ -173,7 +175,7 @@ export default function ScheduleDetailPage() {
         ) : (
           <ul className="space-y-2">
             {runs.map((r) => (
-              <RunRow key={r.id} run={r} isBank={isBank} />
+              <RunRow key={r.id} run={r} isBank={isBank} converts={converts} />
             ))}
           </ul>
         )}
@@ -182,7 +184,7 @@ export default function ScheduleDetailPage() {
   );
 }
 
-function RunRow({ run, isBank }: { run: Run; isBank: boolean }) {
+function RunRow({ run, isBank, converts }: { run: Run; isBank: boolean; converts: boolean }) {
   return (
     <li className="card">
       <div className="flex items-start justify-between gap-3">
@@ -229,7 +231,7 @@ function RunRow({ run, isBank }: { run: Run; isBank: boolean }) {
             target="_blank"
             rel="noreferrer"
           >
-            Swap transaction
+            {converts ? "Swap transaction" : "Transaction"}
           </a>
         )}
         {run.cngn_trx_ref && (
