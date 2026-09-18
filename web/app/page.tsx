@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useAccount } from "wagmi";
 import { useAllowance, useSchedules, useUsdtBalance } from "@/lib/hooks";
-import { formatUnits, intervalLabel, relativeTime, shortAddress } from "@/lib/format";
+import { recipientLabel } from "@/lib/identity";
+import { formatUnits, intervalLabel, relativeTime } from "@/lib/format";
 import { SchedulePill } from "@/components/StatusPill";
 import { isConfigured, tokenFor, USDT } from "@/lib/config";
 import { one, type Schedule } from "@/lib/types";
@@ -95,7 +96,7 @@ function ScheduleCard({ schedule }: { schedule: Schedule }) {
             <p className="mt-0.5 truncate text-xs text-black/50">
               {isBank
                 ? `${recipient?.account_name ?? "Bank account"} · ${recipient?.account_number ?? ""}`
-                : shortAddress(recipient?.wallet_address ?? undefined)}
+                : recipientLabel(null, recipient?.wallet_address)}
             </p>
           </div>
           <SchedulePill status={schedule.status} />

@@ -12,12 +12,12 @@ import { executorAbi } from "@/lib/abi";
 import { EXECUTOR_ADDRESS, EXPLORER, CNGN, tokenFor } from "@/lib/config";
 import { supabase } from "@/lib/supabase";
 import { useRunnability, useRuns, useSchedule } from "@/lib/hooks";
+import { recipientLabel } from "@/lib/identity";
 import {
   formatUnits,
   intervalLabel,
   rateToNairaPerUsd,
   relativeTime,
-  shortAddress,
 } from "@/lib/format";
 import { RunPill, SchedulePill } from "@/components/StatusPill";
 import { one, type Run } from "@/lib/types";
@@ -98,7 +98,7 @@ export default function ScheduleDetailPage() {
             <p className="mt-0.5 text-xs text-black/50">
               {isBank
                 ? `${recipient?.account_name} · ${recipient?.account_number}`
-                : shortAddress(recipient?.wallet_address ?? undefined)}
+                : recipientLabel(null, recipient?.wallet_address)}
             </p>
           </div>
           <SchedulePill status={schedule.status} />

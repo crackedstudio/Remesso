@@ -3,7 +3,7 @@
 import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } from "wagmi";
 import { activeChain } from "@/lib/wagmi";
 import { useIsMiniPay } from "@/lib/hooks";
-import { shortAddress } from "@/lib/format";
+import { addressName } from "@/lib/identity";
 
 export function ConnectBar() {
   const { address, isConnected } = useAccount();
@@ -51,7 +51,10 @@ export function ConnectBar() {
 
   return (
     <div className="flex items-center gap-2">
-      <span className="mono rounded-lg bg-black/5 px-2.5 py-1.5">{shortAddress(address)}</span>
+      {/* MiniPay prohibits showing the wallet address anywhere — a truncated
+          0x1234…abcd is explicitly not an escape hatch. A stable generated name
+          identifies the session without putting hex on screen. */}
+      <span className="rounded-lg bg-black/5 px-2.5 py-1.5">{addressName(address)}</span>
       {/* MiniPay owns the session; disconnecting inside it just strands the app. */}
       {!inMiniPay && (
         <button

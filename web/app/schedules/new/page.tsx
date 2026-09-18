@@ -434,7 +434,9 @@ const CONTRACT_ERRORS: Record<string, string> = {
 
 function friendly(msg: string): string {
   if (/User rejected|User denied/i.test(msg)) return "You cancelled the signature.";
-  if (/insufficient funds/i.test(msg)) return "Not enough CELO to pay gas for this transaction.";
+  // MiniPay's copy rules: "network fee", never "gas", and never name CELO —
+  // fee abstraction means a user has no reason to know CELO exists.
+  if (/insufficient funds/i.test(msg)) return "Not enough funds to cover the network fee.";
   if (/duplicate key|unique/i.test(msg)) return "That wallet is already registered in another session.";
 
   for (const [name, text] of Object.entries(CONTRACT_ERRORS)) {

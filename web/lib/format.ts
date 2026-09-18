@@ -51,8 +51,6 @@ export function parseUnits(input: string, decimals: number): bigint {
     BigInt(frac.padEnd(decimals, "0") || "0");
 }
 
-export const shortAddress = (a?: string) =>
-  a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "";
 
 const INTERVALS = [
   { label: "Weekly", seconds: 7 * 24 * 3600 },
