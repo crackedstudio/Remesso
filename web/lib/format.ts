@@ -85,14 +85,33 @@ const INTERVALS = [
   { label: "Quarterly", seconds: 90 * 24 * 3600 },
 ] as const;
 
+/// The real product's shortest cadence is weekly, which means a live schedule
+/// yields exactly one observable run and then nothing for seven days — useless
+/// for proving the agent actually repeats. This cadence exists so a test can
+/// watch several runs inside a few minutes.
+///
+/// Gated, and deliberately not merely "unlisted": a five-minute remittance is
+/// not a thing anyone wants by accident, and with `maxRuns` at its default of
+/// 12 it would drain a full allowance within the hour.
+export const TEST_INTERVAL = { label: "Every 5 minutes (testing)", seconds: 300 } as const;
+
+export const TEST_INTERVALS_ENABLED =
+  process.env.NEXT_PUBLIC_TEST_INTERVALS === "1";
+
+/// What the picker offers. `INTERVALS` keeps stable indices for anything that
+/// refers to it positionally; the test cadence is only ever prepended here.
+export const SELECTABLE_INTERVALS: ReadonlyArray<{ label: string; seconds: number }> =
+  TEST_INTERVALS_ENABLED ? [TEST_INTERVAL, ...INTERVALS] : INTERVALS;
+
 export { INTERVALS };
 
 export function intervalLabel(seconds: number | bigint): string {
   const s = Number(seconds);
-  const known = INTERVALS.find((i) => i.seconds === s);
+  const known = SELECTABLE_INTERVALS.find((i) => i.seconds === s);
   if (known) return known.label;
   if (s % 86400 === 0) return `Every ${s / 86400} days`;
   if (s % 3600 === 0) return `Every ${s / 3600} hours`;
+  if (s % 60 === 0) return `Every ${s / 60} minutes`;
   return `Every ${s}s`;
 }
 

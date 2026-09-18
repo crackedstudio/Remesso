@@ -1,7 +1,13 @@
 "use client";
 
 import { useMarketRate } from "@/lib/hooks";
-import { INTERVALS, formatUnits, parseUnits, rateToNairaPerUsd } from "@/lib/format";
+import {
+  INTERVALS,
+  SELECTABLE_INTERVALS,
+  formatUnits,
+  parseUnits,
+  rateToNairaPerUsd,
+} from "@/lib/format";
 import { CNGN, type TokenInfo } from "@/lib/config";
 
 export type TermsDraft = {
@@ -20,7 +26,7 @@ function isoDate(days: number): string {
 
 export const defaultTerms: TermsDraft = {
   amount: "",
-  intervalSeconds: INTERVALS[2].seconds, // monthly
+  intervalSeconds: INTERVALS.find((i) => i.label === "Monthly")!.seconds,
   floorPercent: 3,
   maxRuns: "12",
   // V2 requires every schedule to expire, capped at MAX_LIFETIME (365 days).
@@ -92,7 +98,7 @@ export function TermsStep({
       <div>
         <label className="label">How often</label>
         <div className="grid grid-cols-2 gap-2">
-          {INTERVALS.map((i) => (
+          {SELECTABLE_INTERVALS.map((i) => (
             <button
               key={i.seconds}
               type="button"
