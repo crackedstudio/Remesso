@@ -51,30 +51,6 @@ export function parseUnits(input: string, decimals: number): bigint {
     BigInt(frac.padEnd(decimals, "0") || "0");
 }
 
-/// @deprecated pass the token's decimals explicitly — see formatUnits.
-export function formatUnits6(v: bigint | string | number, dp = 2): string {
-  const n = toUnits(v);
-  const neg = n < 0n;
-  const abs = neg ? -n : n;
-  const whole = abs / 1_000_000n;
-  const frac = (abs % 1_000_000n).toString().padStart(6, "0").slice(0, dp);
-  const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return `${neg ? "-" : ""}${grouped}${dp > 0 ? `.${frac}` : ""}`;
-}
-
-/// Parse a user-typed decimal into 6dp base units without going through a
-/// float — "0.1" as a Number cannot be represented exactly, and at scale that
-/// is money quietly disappearing.
-export function parseUnits6(input: string): bigint {
-  const s = input.trim();
-  if (!/^\d*\.?\d*$/.test(s) || s === "" || s === ".") {
-    throw new Error("enter a number");
-  }
-  const [whole, frac = ""] = s.split(".");
-  if (frac.length > 6) throw new Error("at most 6 decimal places");
-  return BigInt(whole || "0") * 1_000_000n + BigInt(frac.padEnd(6, "0") || "0");
-}
-
 export const shortAddress = (a?: string) =>
   a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "";
 
