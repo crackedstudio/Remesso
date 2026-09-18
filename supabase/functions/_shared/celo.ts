@@ -31,7 +31,11 @@ export function walletClient() {
 export const executorAbi = parseAbi([
   "function executeRun(uint256 id, uint256 amountOutMinimum) returns (uint256)",
   "function runnability(uint256 id) view returns (bool due, bool funded, bool approved, uint256 floor, uint64 nextRunAt)",
-  "function getSchedule(uint256 id) view returns ((address sender,uint64 interval,uint32 maxRuns,address destination,uint64 nextRunAt,uint32 runsExecuted,uint128 amountIn,uint96 minRateE6,uint64 expiresAt,uint8 payoutType,bool active,bool cancelled))",
+  // V3 shape. `poolFee` (word 9) and `token` (word 14) were added after V2, and
+// a static tuple decodes positionally — omitting them silently reads poolFee
+// as expiresAt and shifts every field after it. Only `.destination` (word 4)
+// is read today, which is why the stale shape never surfaced.
+  "function getSchedule(uint256 id) view returns ((address sender,uint64 interval,uint32 maxRuns,address destination,uint64 nextRunAt,uint32 runsExecuted,uint128 amountIn,uint96 minRateE6,uint24 poolFee,uint64 expiresAt,uint8 payoutType,bool active,bool cancelled,address token))",
   "function paused() view returns (bool)",
 ]);
 
@@ -121,10 +125,13 @@ export type OnchainSchedule = {
   runsExecuted: number;
   amountIn: bigint;
   minRateE6: bigint;
+  poolFee: number;
   expiresAt: bigint;
   payoutType: number;
   active: boolean;
   cancelled: boolean;
+  /// The asset this schedule actually moves. Direct schedules pin their own.
+  token: Address;
 };
 
 /// The sender-signed policy, read from the contract rather than our mirror of
