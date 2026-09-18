@@ -50,11 +50,18 @@ Rules:
   "every quarter"=quarterly, "every 5 minutes"=5m.
 - Do not add fields.`;
 
-const EXPLAIN_SYSTEM = `You explain to a non-technical person why a scheduled
-payment did not go through, and what to do about it. Reply with a JSON object:
-  { "title": "under 8 words", "detail": "one or two plain sentences", "action": "under 6 words, or null" }
-Do not mention contracts, ABIs, gas, RPCs or function names. Be specific about
-what the person should do. Never promise the payment will retry unless told so.`;
+const EXPLAIN_SYSTEM = `You explain to a non-technical person what happened to a
+scheduled payment. Reply with a JSON object:
+  { "title": "under 8 words", "detail": "one or two plain sentences", "action": "under 7 words, or null" }
+
+The reason you are given may describe a NORMAL, EXPECTED outcome — for example a
+schedule that has finished all the transfers it was set up for. Do not describe
+those as failures, do not imply anything went wrong, and set action to null.
+Only frame something as a problem when the reason actually describes one.
+
+Never speculate about causes the reason does not state. Do not mention
+contracts, gas, RPCs or function names. Never promise the payment will retry
+unless the reason says so.`;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
@@ -81,9 +88,9 @@ Deno.serve(async (req) => {
       if (!reason) return json({ error: "reason is required" }, 400);
       const out = await complete(EXPLAIN_SYSTEM, reason.slice(0, 500)) as Record<string, unknown>;
       return json({
-        title: str(out.title)?.slice(0, 80) ?? "This transfer did not go through",
-        detail: str(out.detail)?.slice(0, 400) ?? reason,
-        action: str(out.action)?.slice(0, 40) ?? null,
+        title: clip(str(out.title), 80) ?? "About this transfer",
+        detail: clip(str(out.detail), 400) ?? reason,
+        action: clip(str(out.action), 60),
       });
     }
 
@@ -138,6 +145,16 @@ async function parseSchedule(text: string) {
     note: str(out.note)?.slice(0, 200) ?? null,
     missing,
   };
+}
+
+/// Trim to a length without cutting a word in half. A label that reads
+/// "send manu" is worse than one that reads slightly shorter.
+function clip(v: string | null, max: number): string | null {
+  if (!v) return null;
+  if (v.length <= max) return v;
+  const cut = v.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return (space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd() + "…";
 }
 
 const str = (v: unknown): string | null =>
