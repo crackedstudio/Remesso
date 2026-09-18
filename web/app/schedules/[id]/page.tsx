@@ -2,7 +2,8 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { explainRun } from "@/lib/ai";
 import { useWriteContract } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 import { wagmiConfig } from "@/lib/wagmi";
@@ -219,9 +220,7 @@ function RunRow({ run, isBank, converts }: { run: Run; isBank: boolean; converts
         </p>
       )}
 
-      {run.failure_reason && (
-        <p className="mt-2 rounded bg-red-50 p-2 text-xs text-red-800">{run.failure_reason}</p>
-      )}
+      {run.failure_reason && <WhatHappened reason={run.failure_reason} />}
 
       <div className="mt-2 flex flex-wrap gap-3 text-xs">
         {run.tx_hash && (
@@ -271,6 +270,36 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     <div className="flex justify-between gap-4 py-2.5">
       <dt className="text-black/50">{label}</dt>
       <dd className="text-right">{children}</dd>
+    </div>
+  );
+}
+
+/// The backend's reason, rewritten for the person reading it.
+///
+/// The raw string is still rendered first and never replaced — it is what
+/// actually happened, and it is what someone will quote when asking for help.
+/// The assistant's version sits underneath as a reading aid, and if the call
+/// fails or is not configured nothing is shown and nothing is lost.
+function WhatHappened({ reason }: { reason: string }) {
+  const { data } = useQuery({
+    queryKey: ["explain", reason],
+    queryFn: () => explainRun(reason),
+    // Reasons repeat across runs and the wording is not time-sensitive, so this
+    // is cached hard rather than re-asked per render.
+    staleTime: 24 * 3600 * 1000,
+    gcTime: 24 * 3600 * 1000,
+    retry: false,
+  });
+
+  return (
+    <div className="mt-2 rounded bg-red-50 p-2 text-xs text-red-800">
+      <p>{reason}</p>
+      {data && (
+        <p className="mt-1.5 border-t border-red-200 pt-1.5 text-red-900">
+          <span className="font-medium">{data.title}.</span> {data.detail}
+          {data.action && <span className="font-medium"> {data.action}.</span>}
+        </p>
+      )}
     </div>
   );
 }

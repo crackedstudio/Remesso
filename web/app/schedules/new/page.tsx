@@ -8,6 +8,8 @@ import { waitForTransactionReceipt } from "wagmi/actions";
 import { parseEventLogs } from "viem";
 import { wagmiConfig } from "@/lib/wagmi";
 import { txOverrides } from "@/lib/tx";
+import { DescribeSchedule, tokenFromSymbol } from "@/components/DescribeSchedule";
+import type { Draft } from "@/lib/ai";
 import { erc20Abi, executorAbi, PayoutType } from "@/lib/abi";
 import {
   CNGN,
@@ -66,6 +68,29 @@ export default function NewSchedulePage() {
   }
   if (!isConnected) {
     return <Warn>Connect your wallet to create a schedule.</Warn>;
+  }
+
+  /// Apply an assistant draft over both steps.
+  ///
+  /// Only fields the assistant resolved are written; a null means it declined
+  /// to guess, and overwriting a value the sender already typed with a blank
+  /// would be worse than leaving it. The token is resolved from its symbol
+  /// against DIRECT_TOKENS rather than trusting an address from the model.
+  function applyDraft(d: Draft) {
+    const token = tokenFromSymbol(d.token);
+    setRecipient((r) => ({
+      ...r,
+      payoutType: "direct",
+      displayName: d.recipientName ?? r.displayName,
+      walletAddress: d.destination ?? r.walletAddress,
+      token: token ?? r.token,
+    }));
+    setTerms((t) => ({
+      ...t,
+      amount: d.amount ?? t.amount,
+      intervalSeconds: d.intervalSeconds ?? t.intervalSeconds,
+      maxRuns: d.maxRuns != null ? String(d.maxRuns) : t.maxRuns,
+    }));
   }
 
   async function authorise() {
@@ -234,7 +259,12 @@ export default function NewSchedulePage() {
       </ol>
 
       <div className="card">
-        {step === 0 && <RecipientStep value={recipient} onChange={setRecipient} />}
+        {step === 0 && (
+          <>
+            <DescribeSchedule onDraft={applyDraft} />
+            <RecipientStep value={recipient} onChange={setRecipient} />
+          </>
+        )}
         {step === 1 && (
           <TermsStep value={terms} onChange={setTerms} token={fundingToken} converts={converts} />
         )}
