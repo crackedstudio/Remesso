@@ -41,7 +41,12 @@ Fields:
   maxRuns       integer number of transfers, or null for "until I stop".
   destination   a 0x... Ethereum address if one appears verbatim, else null.
   recipientName a short name for the recipient if one appears, else null.
-  note          one short sentence, plain language, describing what you understood.
+  note          one short sentence, plain language, describing ONLY what the
+                fields above actually say. Never describe timing or a number of
+                transfers that you set to null — a note calling something a
+                "one-time transfer" while maxRuns is null is a contradiction the
+                reader will believe. If interval or maxRuns is null, say what is
+                still needed instead.
 
 Rules:
 - Never invent an address. If no 0x address appears in the text, destination is null.
