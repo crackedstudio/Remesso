@@ -45,108 +45,152 @@ export function RecipientStep({
   onChange: (r: RecipientDraft) => void;
 }) {
   const set = (patch: Partial<RecipientDraft>) => onChange({ ...value, ...patch });
+  const addressInvalid = Boolean(value.walletAddress) && !isAddress(value.walletAddress);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div>
-        <label className="label">Who is this for?</label>
+        <label className="label" htmlFor="recipient-name">
+          Who is this for?
+        </label>
         <input
+          id="recipient-name"
           className="field"
           placeholder="Mum"
+          autoComplete="off"
           value={value.displayName}
           onChange={(e) => set({ displayName: e.target.value })}
         />
       </div>
 
       <div>
-        <label className="label">How should they receive it?</label>
+        <p className="label">How should they receive it?</p>
         <div className="grid grid-cols-3 gap-2">
           <Choice
             active={value.payoutType === "direct"}
             onClick={() => set({ payoutType: "direct" })}
             title="Stablecoin"
-            subtitle="Visible in MiniPay"
+            subtitle="Shows in MiniPay"
           />
           <Choice
             active={value.payoutType === "wallet"}
             onClick={() => set({ payoutType: "wallet" })}
             title="cNGN"
-            subtitle="Not shown in MiniPay"
+            subtitle="Other wallets"
           />
           <Choice
             active={value.payoutType === "ngn_bank"}
             onClick={() => BANK_PAYOUTS_ENABLED && set({ payoutType: "ngn_bank" })}
             disabled={!BANK_PAYOUTS_ENABLED}
             title="Bank"
-            subtitle={BANK_PAYOUTS_ENABLED ? "Naira" : "Unavailable"}
+            subtitle={BANK_PAYOUTS_ENABLED ? "Naira account" : "Coming soon"}
           />
         </div>
 
         {value.payoutType === "direct" && (
-          <div className="mt-3">
-            <label className="label">Which asset</label>
+          <div className="mt-4">
+            <p className="label">Which one</p>
             <div className="grid grid-cols-3 gap-2">
               {DIRECT_TOKENS.map((t) => (
                 <button
                   key={t.symbol}
                   type="button"
                   onClick={() => set({ token: t })}
-                  className={`rounded-lg border px-3 py-2 text-sm transition ${
-                    value.token.symbol === t.symbol
-                      ? "border-ink bg-ink text-white"
-                      : "border-black/15 bg-white hover:bg-black/[0.03]"
+                  className={`tile min-h-11 text-center text-[15px] font-medium ${
+                    value.token.symbol === t.symbol ? "tile-on" : ""
                   }`}
+                  aria-pressed={value.token.symbol === t.symbol}
                 >
                   {t.symbol}
                 </button>
               ))}
             </div>
             <p className="hint">
-              No conversion happens — you send {value.token.symbol} and they receive
-              {" "}{value.token.symbol}. All three show up in MiniPay.
+              You send {value.token.symbol}, they receive {value.token.symbol}. No conversion,
+              and it appears in their MiniPay balance straight away.
             </p>
           </div>
         )}
 
         {/* The honest reason the cNGN option is second, not first. */}
         {value.payoutType === "wallet" && (
-          <p className="hint text-amber-700">
-            MiniPay only displays USDT, USDC and cUSD. A recipient paid in cNGN
-            will see nothing in their wallet, and MiniPay has no way to add a
-            custom token. Prefer Stablecoin unless they use another wallet.
+          <p className="notice-warn mt-3">
+            MiniPay only shows USDT, USDC and cUSD. Someone paid in cNGN will see nothing
+            in MiniPay, and it has no way to add a token. Choose Stablecoin unless they use
+            a different wallet.
           </p>
         )}
-        {!BANK_PAYOUTS_ENABLED && (
-          <p className="hint">
-            Bank payouts are switched off because the cNGN redemption address has not been
-            confirmed as stable for this account. Until it is, a schedule could be
-            authorised to send to an address that later stops being the right one.
-          </p>
+        {/* The reason is in the README; the sender only needs to know it is
+            not them. */}
+        {!BANK_PAYOUTS_ENABLED && value.payoutType !== "wallet" && (
+          <p className="hint">Paying straight into a bank account is coming soon.</p>
         )}
       </div>
 
       {value.payoutType !== "ngn_bank" ? (
         <div>
-          <label className="label">Recipient wallet</label>
-          <input
-            className="field mono"
-            placeholder="0x…"
-            spellCheck={false}
-            value={value.walletAddress}
-            onChange={(e) => set({ walletAddress: e.target.value.trim() })}
-          />
-          {value.walletAddress && !isAddress(value.walletAddress) && (
-            <p className="hint text-red-600">That is not a valid address.</p>
+          <label className="label" htmlFor="recipient-address">
+            Their wallet address
+          </label>
+          <div className="relative">
+            <input
+              id="recipient-address"
+              className={`field mono pr-20 ${addressInvalid ? "field-invalid" : ""}`}
+              placeholder="0x…"
+              spellCheck={false}
+              autoComplete="off"
+              autoCapitalize="none"
+              inputMode="text"
+              value={value.walletAddress}
+              onChange={(e) => set({ walletAddress: e.target.value.trim() })}
+              aria-invalid={addressInvalid}
+            />
+            <PasteButton onPaste={(t) => set({ walletAddress: t })} />
+          </div>
+          {addressInvalid ? (
+            <p className="hint text-danger">That doesn&rsquo;t look like a complete address.</p>
+          ) : isAddress(value.walletAddress) ? (
+            <p className="hint text-naira">Looks right.</p>
+          ) : (
+            <p className="hint">
+              Ask them to share it from their wallet. Once you sign, this address is fixed —
+              changing it later means a new schedule, which is the point.
+            </p>
           )}
-          <p className="hint">
-            This address is fixed on-chain when you sign. Changing it later means
-            cancelling this schedule and creating a new one — which is the point.
-          </p>
         </div>
       ) : (
         <BankFields value={value} set={set} />
       )}
     </div>
+  );
+}
+
+/// Typing 42 hex characters on a phone is the worst moment in this flow, so
+/// the clipboard is offered first. Clipboard read needs a user gesture and
+/// permission; if either is missing the button just does nothing visible and
+/// the field is still there to type into.
+function PasteButton({ onPaste }: { onPaste: (text: string) => void }) {
+  const [done, setDone] = useState(false);
+  if (typeof navigator === "undefined" || !navigator.clipboard?.readText) return null;
+  return (
+    <button
+      type="button"
+      className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg bg-sand px-3 py-1.5 text-[13px] font-medium text-ink-2 transition hover:bg-line/70 active:scale-95"
+      onClick={async () => {
+        try {
+          const t = (await navigator.clipboard.readText()).trim();
+          if (t) {
+            onPaste(t);
+            setDone(true);
+            setTimeout(() => setDone(false), 1200);
+          }
+        } catch {
+          /* permission denied — the field still accepts typing */
+        }
+      }}
+    >
+      {done ? "Pasted" : "Paste"}
+    </button>
   );
 }
 
@@ -192,11 +236,12 @@ function BankFields({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div>
-        <label className="label">Bank</label>
+        <label className="label" htmlFor="bank">Bank</label>
         <select
-          className="field"
+          id="bank"
+          className="field appearance-none"
           value={value.bankCode}
           disabled={banks.isLoading || banks.isError}
           onChange={(e) => set({ bankCode: e.target.value })}
@@ -210,13 +255,14 @@ function BankFields({
             </option>
           ))}
         </select>
-        {banks.isError && <p className="hint text-red-600">{(banks.error as Error).message}</p>}
+        {banks.isError && <p className="hint text-danger">{(banks.error as Error).message}</p>}
       </div>
 
       <div>
-        <label className="label">Account number</label>
+        <label className="label" htmlFor="account-number">Account number</label>
         <input
-          className="field mono"
+          id="account-number"
+          className="field mono text-lg"
           inputMode="numeric"
           maxLength={10}
           placeholder="0123456789"
@@ -225,22 +271,24 @@ function BankFields({
         />
       </div>
 
+      {/* The verified-name card is the moment Opay and Moniepoint users look
+          for before sending anything. It gets the naira green. */}
       {value.accountName ? (
-        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3">
-          <p className="text-xs uppercase tracking-wide text-emerald-800/70">Account name</p>
-          <p className="mt-0.5 font-medium text-emerald-900">{value.accountName}</p>
-          <p className="mt-1 text-xs text-emerald-900/70">
-            Confirm this is the right person before continuing. Naira sent to a Nigerian
-            bank account cannot be recalled.
+        <div className="animate-rise rounded-xl bg-naira-soft px-4 py-3.5">
+          <p className="eyebrow text-naira">Account name</p>
+          <p className="mt-1 font-display text-[22px] leading-tight text-ink">{value.accountName}</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
+            Make sure this is the right person. Naira sent to a bank account cannot be
+            recalled.
           </p>
         </div>
       ) : (
-        <button className="btn-ghost w-full" disabled={!canCheck || checking} onClick={check}>
+        <button className="btn-ink w-full" disabled={!canCheck || checking} onClick={check}>
           {checking ? "Checking with the bank…" : "Verify account"}
         </button>
       )}
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="notice-danger">{error}</p>}
     </div>
   );
 }
@@ -263,12 +311,11 @@ function Choice({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${
-        active ? "border-ink bg-ink text-white" : "border-black/15 bg-white hover:bg-black/[0.03]"
-      }`}
+      aria-pressed={active}
+      className={`tile h-full ${active ? "tile-on" : ""}`}
     >
-      <span className="block text-sm font-medium">{title}</span>
-      <span className={`block text-xs ${active ? "text-white/60" : "text-black/50"}`}>
+      <span className="block text-[15px] font-medium text-ink">{title}</span>
+      <span className={`mt-0.5 block text-[12px] leading-snug ${active ? "text-clay-deep" : "text-ink-3"}`}>
         {subtitle}
       </span>
     </button>

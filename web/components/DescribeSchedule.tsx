@@ -81,52 +81,58 @@ export function DescribeSchedule({
   }
 
   return (
-    <div className="mb-5 rounded-xl border border-black/10 bg-black/[0.02] p-3">
-      <label className="label">Describe it instead</label>
-      <p className="hint mb-2">
-        e.g. “Send 20 USDT to 0xa09d… every week for 8 weeks”
-      </p>
+    <div className="mb-7 rounded-2xl bg-sand/70 p-4">
+      <label className="label" htmlFor="describe">
+        Or just say it
+      </label>
       <textarea
-        className="field min-h-[72px] resize-none"
+        id="describe"
+        className="field min-h-[76px] resize-none"
         value={text}
-        placeholder="Say what you want to send, to whom, and how often."
+        placeholder="Send 20 USDT to 0x… every month for 6 months"
         onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            run();
+          }
+        }}
       />
-      {!text.trim() && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
+      {!text.trim() ? (
+        <div className="mt-2.5 flex flex-wrap gap-2">
           {STARTERS.map((example) => (
             <button
               key={example}
               type="button"
-              className="rounded-full border border-black/10 bg-white px-2.5 py-1 text-[11px] text-black/60 hover:border-black/30 hover:text-ink"
+              className="chip h-auto py-1.5 text-left leading-snug"
               onClick={() => setText(example)}
             >
               {example}
             </button>
           ))}
         </div>
+      ) : (
+        <button
+          type="button"
+          className="btn-ink mt-2.5 w-full"
+          disabled={busy}
+          onClick={() => run()}
+        >
+          {busy ? "Reading…" : "Fill in the form"}
+        </button>
       )}
 
-      <button
-        type="button"
-        className="btn-primary mt-2 w-full"
-        disabled={busy || !text.trim()}
-        onClick={() => run()}
-      >
-        {busy ? "Reading…" : "Fill in the form"}
-      </button>
-
-      {note && <p className="mt-2 text-xs text-black/60">{note}</p>}
+      {note && <p className="mt-3 text-[13px] leading-relaxed text-ink-2">{note}</p>}
 
       {openEnded && (
-        <div className="mt-2 rounded bg-black/[0.03] p-2 text-xs text-black/70">
-          <p>This will keep running until you stop it.</p>
+        <div className="notice-info mt-3 animate-rise">
+          <p>This will keep going until you stop it.</p>
           <Chips label="Limit it?" options={COUNT_WORDS} onPick={addWords} disabled={busy} />
         </div>
       )}
 
       {missing.length > 0 && (
-        <div className="mt-2 rounded bg-amber-50 p-2 text-xs text-amber-900">
+        <div className="notice-warn mt-3 animate-rise">
           <p>Still needed: {missing.join(", ")}.</p>
 
           {/* Only frequency and count can be added by tapping. An amount and an
@@ -143,27 +149,24 @@ export function DescribeSchedule({
           )}
 
           {(missing.includes("amount") || missing.includes("recipient address")) && (
-            <p className="mt-1.5 text-amber-800">
-              Type the {[
+            <p className="mt-2 text-ink-2">
+              Add the {[
                 missing.includes("amount") ? "amount" : null,
-                missing.includes("recipient address") ? "recipient address" : null,
-              ].filter(Boolean).join(" and ")} into the sentence above, or fill the form below.
+                missing.includes("recipient address") ? "address" : null,
+              ].filter(Boolean).join(" and ")} to the sentence, or type it into the form below.
             </p>
           )}
         </div>
       )}
 
-      {error && (
-        <p className="mt-2 rounded bg-red-50 p-2 text-xs text-red-800">{error}</p>
-      )}
+      {error && <p className="notice-danger mt-3">{error}</p>}
 
-      <p className="mt-2 text-[11px] text-black/40">
-        Fills the form only. You review every detail and sign it yourself.
+      <p className="mt-3 text-[12px] text-ink-3">
+        This only fills in the form. You check every detail and sign it yourself.
       </p>
     </div>
   );
 }
-
 
 function Chips({
   label,
@@ -177,15 +180,15 @@ function Chips({
   disabled: boolean;
 }) {
   return (
-    <div className="mt-1.5">
-      <span className="text-amber-800">{label}</span>
-      <div className="mt-1 flex flex-wrap gap-1.5">
+    <div className="mt-2">
+      <span className="text-ink-2">{label}</span>
+      <div className="mt-1.5 flex flex-wrap gap-2">
         {options.map((o) => (
           <button
             key={o.words}
             type="button"
             disabled={disabled}
-            className="rounded-full border border-amber-300 bg-white px-2.5 py-1 text-[11px] text-amber-900 hover:border-amber-500 disabled:opacity-50"
+            className="chip bg-surface"
             onClick={() => onPick(o.words)}
           >
             {o.label}

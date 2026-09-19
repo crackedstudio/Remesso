@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { explainRun } from "@/lib/ai";
@@ -11,32 +11,52 @@ import { txOverrides } from "@/lib/tx";
 import { executorAbi } from "@/lib/abi";
 import { EXECUTOR_ADDRESS, EXPLORER, CNGN, tokenFor } from "@/lib/config";
 import { supabase } from "@/lib/supabase";
-import { useRunnability, useRuns, useSchedule } from "@/lib/hooks";
+import { useIsMiniPay, useRunnability, useRuns, useSchedule } from "@/lib/hooks";
 import { recipientLabel } from "@/lib/identity";
 import {
+  everyLabel,
   formatUnits,
-  intervalLabel,
   rateToNairaPerUsd,
   relativeTime,
 } from "@/lib/format";
 import { RunPill, SchedulePill } from "@/components/StatusPill";
+import { Amount, MINIPAY_DEPOSIT_URL, Row, Sheet, Skeleton } from "@/components/ui";
 import { one, type Run } from "@/lib/types";
 
 export default function ScheduleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const justCreated = useSearchParams().get("created") === "1";
+  const inMiniPay = useIsMiniPay();
   const queryClient = useQueryClient();
   const { writeContractAsync } = useWriteContract();
 
-  const { data: schedule, isLoading } = useSchedule(id);
+  // `isPending`, not `isLoading`: the latter drops to false between retry
+  // attempts, and this page would then say the schedule does not exist while
+  // the fetch was still in flight.
+  const { data: schedule, isPending, error: loadError, refetch } = useSchedule(id);
   const { data: runs } = useRuns(id);
   const { data: runnability } = useRunnability(schedule?.onchain_id ?? null);
 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
-  if (isLoading) return <div className="card text-sm text-black/50">Loading…</div>;
-  if (!schedule) return <div className="card text-sm">Schedule not found.</div>;
+  if (isPending) return <DetailSkeleton />;
+  // A failed fetch and a missing row are different answers. Telling someone
+  // their schedule "doesn't exist" because the network dropped is the kind of
+  // message that makes them think their money is gone.
+  if (loadError) {
+    return (
+      <div className="notice-danger mt-2 flex items-center justify-between gap-3">
+        <span>Couldn&rsquo;t load this schedule. Check your connection.</span>
+        <button className="btn-ink btn-sm shrink-0" onClick={() => refetch()}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+  if (!schedule) return <div className="notice-info mt-2">This schedule doesn&rsquo;t exist.</div>;
 
   const recipient = one(schedule.recipients);
   const isBank = recipient?.payout_type === "ngn_bank";
@@ -87,200 +107,314 @@ export default function ScheduleDetailPage() {
     }
   }
 
+  const token = tokenFor(schedule.token_address);
+  const name = schedule.label || recipient?.display_name || "Remittance";
+
   return (
-    <div className="space-y-4">
-      <div className="card">
+    <div className="stagger">
+      {justCreated && (
+        <div className="notice-good mt-2 flex items-start gap-3">
+          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-naira text-[11px] text-surface" aria-hidden>
+            ✓
+          </span>
+          <span>
+            <span className="font-medium">You&rsquo;re all set.</span> This runs on its own now
+            — nothing else to do. Come back any time to check on it.
+          </span>
+        </div>
+      )}
+
+      <section className="mt-4">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold">
-              {schedule.label || recipient?.display_name}
-            </h1>
-            <p className="mt-0.5 text-xs text-black/50">
-              {isBank
-                ? `${recipient?.account_name} · ${recipient?.account_number}`
-                : recipientLabel(null, recipient?.wallet_address)}
-            </p>
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-clay-soft font-display text-2xl text-clay-deep" aria-hidden>
+              {name.trim().charAt(0).toUpperCase()}
+            </span>
+            <div className="min-w-0">
+              <h1 className="truncate text-[17px] font-medium text-ink">{name}</h1>
+              <p className="truncate text-[13px] text-ink-2">
+                {isBank
+                  ? `${recipient?.account_name} · ${recipient?.account_number}`
+                  : recipientLabel(null, recipient?.wallet_address)}
+              </p>
+            </div>
           </div>
           <SchedulePill status={schedule.status} />
         </div>
 
-        <dl className="mt-4 divide-y divide-black/5 text-sm">
-          <Row label="Each transfer">
-            <span className="mono">
-              {formatUnits(schedule.amount_in, tokenFor(schedule.token_address).decimals)}{" "}
-              {tokenFor(schedule.token_address).symbol}
-            </span>
+        <div className="mt-5">
+          <Amount value={formatUnits(schedule.amount_in, token.decimals)} unit={token.symbol} size="hero" />
+          <p className="mt-2 text-[15px] text-ink-2">
+            {everyLabel(schedule.interval_seconds)}
+            {schedule.status === "active" && (
+              <>
+                <span className="text-ink-3"> · </span>next {relativeTime(schedule.next_run_at)}
+              </>
+            )}
+          </p>
+        </div>
+      </section>
+
+      <dl className="mt-5 divide-y divide-line/70 border-y border-line/70">
+        {converts && (
+          <Row label="Rate floor">₦{rateToNairaPerUsd(schedule.min_rate_e6).toFixed(0)} per USDT</Row>
+        )}
+        {schedule.max_runs > 0 && <Row label="Transfers">{schedule.max_runs}</Row>}
+        {schedule.expires_at && (
+          <Row label="Expires">
+            {new Date(schedule.expires_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
           </Row>
-          <Row label="Frequency">{intervalLabel(schedule.interval_seconds)}</Row>
-          <Row label="Rate floor">
-            ₦{rateToNairaPerUsd(schedule.min_rate_e6).toFixed(0)} per USDT
+        )}
+        {schedule.onchain_id && (
+          <Row label="Reference">
+            <span className="mono">#{schedule.onchain_id}</span>
           </Row>
-          <Row label="Next run">
-            {schedule.status === "active" ? relativeTime(schedule.next_run_at) : "—"}
-          </Row>
-          {schedule.onchain_id && (
-            <Row label="On-chain id">
-              <span className="mono">#{schedule.onchain_id}</span>
-            </Row>
-          )}
-        </dl>
-      </div>
+        )}
+      </dl>
 
       {/* The contract's own answer, not our mirror of it. If these disagree, the
           contract is right and the sender needs to know which one is blocking. */}
       {runnability && live && (
-        <div className="card">
-          <p className="label">Readiness, straight from the contract</p>
-          <ul className="space-y-1.5 text-sm">
-            <Check ok={runnability.funded} label="Wallet holds enough USDT" fix="Top up your wallet." />
+        <section className="mt-6">
+          <p className="eyebrow mb-3">Next transfer</p>
+          <ul className="space-y-2.5">
+            <Check
+              ok={runnability.funded}
+              label={`Enough ${token.symbol} in your wallet`}
+              failLabel={`Not enough ${token.symbol} in your wallet`}
+              fix={
+                inMiniPay ? (
+                  <a href={MINIPAY_DEPOSIT_URL} className="font-medium text-clay-deep underline underline-offset-2">
+                    Add money
+                  </a>
+                ) : (
+                  "Top up your wallet."
+                )
+              }
+            />
             <Check
               ok={runnability.approved}
-              label="Allowance covers the next run"
-              fix="Re-approve USDT to resume."
+              label="Approval covers the next run"
+              failLabel="Approval no longer covers a run"
+              fix={`Re-approve ${token.symbol} in your wallet to resume.`}
             />
             <Check
               ok={runnability.due || schedule.status !== "active"}
-              label="Due to run"
+              label="Due now"
+              failLabel="Not due yet"
               fix={`Next attempt ${relativeTime(Number(runnability.nextRunAt))}.`}
               neutral
             />
           </ul>
-        </div>
+        </section>
       )}
 
       {live && (
-        <div className="flex gap-2">
+        <div className="mt-6 flex gap-2">
           <button
-            className="btn-ghost flex-1"
+            className="btn-soft flex-1"
             disabled={Boolean(busy)}
             onClick={() => act(schedule.status === "active" ? "pause" : "resume")}
           >
-            {schedule.status === "active" ? "Pause" : "Resume"}
+            {busy && busy !== "Cancelling…" ? busy : schedule.status === "active" ? "Pause" : "Resume"}
           </button>
           <button
-            className="btn-ghost flex-1 border-red-200 text-red-700 hover:bg-red-50"
+            className="btn-danger flex-1"
             disabled={Boolean(busy)}
-            onClick={() => act("cancel")}
+            onClick={() => setConfirmCancel(true)}
           >
-            Cancel permanently
+            {busy === "Cancelling…" ? busy : "Cancel"}
           </button>
         </div>
       )}
-      {busy && <p className="text-center text-sm text-black/50">{busy}</p>}
-      {error && <div className="card border-red-300 bg-red-50 text-sm text-red-800">{error}</div>}
+      {error && (
+        <div className="notice-danger mt-3" role="alert">
+          {error}
+        </div>
+      )}
 
-      <section>
-        <h2 className="mb-2 text-sm font-medium text-black/60">History</h2>
+      <Sheet open={confirmCancel} onClose={() => setConfirmCancel(false)} title="Cancel this schedule?">
+        <p className="text-[15px] leading-relaxed text-ink-2">
+          No more transfers to {name}. This is written to the contract and cannot be undone —
+          to start again you would set up a new schedule.
+        </p>
+        <div className="mt-5 flex flex-col gap-2">
+          <button
+            className="btn-danger bg-danger text-surface hover:bg-danger/90"
+            onClick={() => {
+              setConfirmCancel(false);
+              act("cancel");
+            }}
+          >
+            Yes, cancel it
+          </button>
+          <button className="btn-ghost" onClick={() => setConfirmCancel(false)}>
+            Keep it
+          </button>
+        </div>
+      </Sheet>
+
+      <section className="mt-8">
+        <h2 className="font-display text-[22px] text-ink">History</h2>
         {!runs?.length ? (
-          <div className="card text-sm text-black/50">No runs yet.</div>
+          <p className="mt-2 text-[14px] text-ink-2">
+            {schedule.status === "active"
+              ? "Nothing yet. The first transfer will show up here."
+              : "No transfers were made."}
+          </p>
         ) : (
-          <ul className="space-y-2">
-            {runs.map((r) => (
-              <RunRow key={r.id} run={r} isBank={isBank} converts={converts} />
+          <ol className="mt-3">
+            {runs.map((r, i) => (
+              <RunRow key={r.id} run={r} isBank={isBank} converts={converts} last={i === runs.length - 1} />
             ))}
-          </ul>
+          </ol>
         )}
       </section>
     </div>
   );
 }
 
-function RunRow({ run, isBank, converts }: { run: Run; isBank: boolean; converts: boolean }) {
+function DetailSkeleton() {
   return (
-    <li className="card">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm">
-            <span className="mono">
-              {formatUnits(run.amount_in, tokenFor(run.token_address).decimals)}
-            </span>{" "}
-            {tokenFor(run.token_address).symbol}
-            {run.amount_out && run.amount_out !== run.amount_in && (
-              <>
-                {" → "}
-                <span className="mono text-naira">
-                  ₦{formatUnits(run.amount_out, CNGN.decimals, 0)}
-                </span>
-              </>
-            )}
-          </p>
-          <p className="mt-0.5 text-xs text-black/50">
-            Run #{run.attempt} · {relativeTime(run.started_at)}
-          </p>
+    <div className="mt-4" aria-busy>
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-12 w-12 rounded-full" />
+        <div className="flex-1 space-y-2">
+          <Skeleton className="h-4 w-1/2" />
+          <Skeleton className="h-3 w-1/3" />
         </div>
-        <RunPill status={run.status} isBank={isBank} />
       </div>
+      <Skeleton className="mt-6 h-11 w-2/3" />
+      <Skeleton className="mt-3 h-4 w-1/2" />
+      <div className="mt-6 space-y-3">
+        <Skeleton className="h-10" />
+        <Skeleton className="h-10" />
+      </div>
+    </div>
+  );
+}
 
-      {/* The distinction this whole design exists to preserve: the swap landing
-          is not the recipient being paid. */}
-      {isBank && run.status === "redeeming" && (
-        <p className="mt-2 rounded bg-sky-50 p-2 text-xs text-sky-900">
-          cNGN has been delivered and the naira payout is in progress. This is not settled
-          until the bank confirms it.
-        </p>
-      )}
+const DOT: Record<Run["status"], string> = {
+  pending: "bg-amber",
+  swapping: "bg-amber",
+  delivered: "bg-naira",
+  redeeming: "bg-amber",
+  paid_out: "bg-naira",
+  failed: "bg-danger",
+  skipped: "bg-ink-3",
+};
 
-      {run.failure_reason && <WhatHappened reason={run.failure_reason} />}
+function RunRow({
+  run,
+  isBank,
+  converts,
+  last,
+}: {
+  run: Run;
+  isBank: boolean;
+  converts: boolean;
+  last: boolean;
+}) {
+  const token = tokenFor(run.token_address);
+  // A bank run's `delivered` is mid-flight, not done, so its dot stays amber.
+  const dot = isBank && run.status === "delivered" ? "bg-amber" : DOT[run.status];
 
-      <div className="mt-2 flex flex-wrap gap-3 text-xs">
-        {run.tx_hash && (
-          <a
-            className="text-black/50 underline underline-offset-2 hover:text-ink"
-            href={`${EXPLORER}/tx/${run.tx_hash}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {converts ? "Swap transaction" : "Transaction"}
-          </a>
+  return (
+    <li className="relative flex gap-4 pb-6">
+      {!last && <span className="absolute left-[5px] top-4 h-full w-px bg-line" aria-hidden />}
+      <span className={`relative mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full ring-4 ring-paper ${dot}`} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[15px] text-ink">
+              <Amount value={formatUnits(run.amount_in, token.decimals)} unit={token.symbol} size="sm" />
+              {run.amount_out && run.amount_out !== run.amount_in && (
+                <>
+                  <span className="text-ink-3"> → </span>
+                  <span className="font-medium text-naira">₦{formatUnits(run.amount_out, CNGN.decimals, 0)}</span>
+                </>
+              )}
+            </p>
+            <p className="mt-0.5 text-[13px] text-ink-3">
+              {relativeTime(run.started_at)} · #{run.attempt}
+            </p>
+          </div>
+          <RunPill status={run.status} isBank={isBank} />
+        </div>
+
+        {/* The distinction this whole design exists to preserve: the swap landing
+            is not the recipient being paid. */}
+        {isBank && (run.status === "redeeming" || run.status === "delivered") && (
+          <p className="notice-info mt-2">
+            The conversion is done and the bank payout is in progress. It isn&rsquo;t settled
+            until the bank confirms it.
+          </p>
         )}
-        {run.cngn_trx_ref && (
-          <span className="mono text-black/40">cNGN {run.cngn_trx_ref}</span>
+
+        {run.failure_reason && (
+          <WhatHappened reason={run.failure_reason} skipped={run.status === "skipped"} />
+        )}
+
+        {(run.tx_hash || run.cngn_trx_ref) && (
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+            {run.tx_hash && (
+              <a
+                className="text-ink-2 underline underline-offset-2 hover:text-ink"
+                href={`${EXPLORER}/tx/${run.tx_hash}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {converts ? "View conversion" : "View transfer"}
+              </a>
+            )}
+            {run.cngn_trx_ref && <span className="mono text-ink-3">{run.cngn_trx_ref}</span>}
+          </div>
         )}
       </div>
     </li>
   );
 }
 
+/// One readiness line. A failing check names the problem rather than showing
+/// a red mark beside a sentence that says the opposite.
 function Check({
   ok,
   label,
+  failLabel,
   fix,
   neutral,
 }: {
   ok: boolean;
   label: string;
-  fix: string;
+  failLabel: string;
+  fix: React.ReactNode;
   neutral?: boolean;
 }) {
   return (
-    <li className="flex items-start gap-2">
-      <span className={ok ? "text-emerald-600" : neutral ? "text-black/30" : "text-red-600"}>
-        {ok ? "✓" : neutral ? "•" : "✕"}
+    <li className="flex items-start gap-3">
+      <span
+        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] ${
+          ok ? "bg-naira text-surface" : neutral ? "border border-line text-ink-3" : "bg-danger text-surface"
+        }`}
+        aria-hidden
+      >
+        {ok ? "✓" : neutral ? "" : "!"}
       </span>
-      <span>
-        {label}
-        {!ok && <span className="block text-xs text-black/50">{fix}</span>}
+      <span className="text-[15px] text-ink">
+        {ok ? label : failLabel}
+        {!ok && <span className="block text-[13px] text-ink-2">{fix}</span>}
       </span>
     </li>
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex justify-between gap-4 py-2.5">
-      <dt className="text-black/50">{label}</dt>
-      <dd className="text-right">{children}</dd>
-    </div>
-  );
-}
-
 /// The backend's reason, rewritten for the person reading it.
 ///
-/// The raw string is still rendered first and never replaced — it is what
-/// actually happened, and it is what someone will quote when asking for help.
-/// The assistant's version sits underneath as a reading aid, and if the call
-/// fails or is not configured nothing is shown and nothing is lost.
-function WhatHappened({ reason }: { reason: string }) {
+/// The raw string is always rendered and never replaced — it is what actually
+/// happened, and it is what someone will quote when asking for help. The
+/// assistant's version sits above it as a reading aid; if the call fails or
+/// is not configured only the raw reason shows, and nothing is lost.
+function WhatHappened({ reason, skipped }: { reason: string; skipped: boolean }) {
   const { data } = useQuery({
     queryKey: ["explain", reason],
     queryFn: () => explainRun(reason),
@@ -292,14 +426,18 @@ function WhatHappened({ reason }: { reason: string }) {
   });
 
   return (
-    <div className="mt-2 rounded bg-red-50 p-2 text-xs text-red-800">
-      <p>{reason}</p>
+    // A skip is the contract doing its job — the floor held, or the wallet was
+    // short — so it is drawn as a caution, not a failure.
+    <div className={`${skipped ? "notice-warn" : "notice-danger"} mt-2`}>
       {data && (
-        <p className="mt-1.5 border-t border-red-200 pt-1.5 text-red-900">
+        <p className="text-ink">
           <span className="font-medium">{data.title}.</span> {data.detail}
           {data.action && <span className="font-medium"> {data.action}.</span>}
         </p>
       )}
+      <p className={`mono ${data ? "mt-1.5 border-t border-ink/10 pt-1.5 text-[12px] opacity-80" : ""}`}>
+        {reason}
+      </p>
     </div>
   );
 }

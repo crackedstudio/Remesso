@@ -2,41 +2,183 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Palette as OKLCH channels; tailwind.config.ts wraps them in oklch() so
+   opacity modifiers keep working. Every neutral is tinted a few degrees toward
+   the teal hue — it is what makes the off-white and the ink read as one
+   material rather than a white page with a teal button on it. The token
+   names are roles, not hues: "clay" is simply the accent. */
 :root {
   color-scheme: light;
+
+  --paper: 0.976 0.006 195;
+  --surface: 0.995 0.003 195;
+  --sand: 0.952 0.011 195;
+  --line: 0.885 0.014 195;
+
+  --ink: 0.235 0.025 215;
+  --ink-2: 0.46 0.025 215;
+  --ink-3: 0.62 0.02 210;
+
+  --clay: 0.56 0.105 195;
+  --clay-deep: 0.47 0.105 198;
+  --clay-soft: 0.955 0.03 195;
+
+  --naira: 0.55 0.13 150;
+  --naira-soft: 0.955 0.04 150;
+
+  --amber: 0.72 0.14 72;
+  --amber-soft: 0.965 0.045 82;
+
+  --danger: 0.55 0.19 27;
+  --danger-soft: 0.96 0.03 25;
 }
 
-body {
-  background: theme(colors.paper);
-  color: theme(colors.ink);
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  html {
+    /* MiniPay on a 360px phone is the primary target; nothing below relies on
+       the viewport being wider than that. */
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-paper font-sans text-ink antialiased;
+    /* Tabular figures everywhere — amounts line up in lists, and a number that
+       reflows as it counts down is a number nobody trusts. */
+    font-feature-settings: "tnum" 1, "ss01" 1;
+  }
+  ::selection {
+    @apply bg-clay-soft text-clay-deep;
+  }
+  /* Fraunces' optical size axis makes small text spiky; hero amounts and
+     headings are the only place it appears, always large. */
+  .font-display {
+    font-variation-settings: "opsz" 144, "SOFT" 30, "WONK" 0;
+    letter-spacing: -0.02em;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 @layer components {
   .card {
-    @apply rounded-xl border border-black/10 bg-white p-5 shadow-sm;
+    @apply rounded-2xl border border-line/70 bg-surface p-5 shadow-card;
   }
+
+  /* Buttons. 48px tall by default: the thumb, not the cursor, is the pointer. */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
-           text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-12 select-none items-center justify-center gap-2 rounded-2xl px-5
+           text-[15px] font-semibold transition duration-200 ease-out
+           active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40
+           disabled:active:scale-100;
+  }
+  .btn-sm {
+    @apply min-h-10 rounded-xl px-4 text-sm;
   }
   .btn-primary {
-    @apply btn bg-ink text-white hover:bg-ink/90;
+    @apply btn bg-clay text-surface shadow-[inset_0_1px_0_oklch(1_0_0/0.18)] hover:bg-clay-deep;
+  }
+  .btn-ink {
+    @apply btn bg-ink text-paper hover:bg-ink/90;
   }
   .btn-ghost {
-    @apply btn border border-black/15 bg-white hover:bg-black/[0.03];
+    @apply btn border border-line bg-surface text-ink hover:bg-sand;
   }
+  .btn-soft {
+    @apply btn bg-sand text-ink hover:bg-line/60;
+  }
+  .btn-danger {
+    @apply btn border border-danger/25 bg-surface text-danger hover:bg-danger-soft;
+  }
+
   .field {
-    @apply w-full rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm
-           outline-none focus:border-ink/40 focus:ring-2 focus:ring-ink/10;
+    @apply w-full rounded-xl border border-line bg-surface px-4 py-3 text-[15px] text-ink
+           outline-none transition duration-200 placeholder:text-ink-3
+           focus:border-clay focus:ring-4 focus:ring-clay/15;
+  }
+  .field-invalid {
+    @apply border-danger focus:border-danger focus:ring-danger/15;
   }
   .label {
-    @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-black/50;
+    @apply mb-2 block text-sm font-medium text-ink;
   }
   .hint {
-    @apply mt-1.5 text-xs leading-relaxed text-black/50;
+    @apply mt-2 text-[13px] leading-relaxed text-ink-2;
   }
+  /* Kept for account numbers and references — things a person reads digit by
+     digit. Not a font change, just spacing and a tabular hand. */
   .mono {
-    @apply font-mono text-[0.8125rem];
+    @apply tracking-[0.04em];
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* Overline: the small caps label above a block. */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3;
+  }
+
+  /* Selectable tile — a payout rail, an asset, a cadence. */
+  .tile {
+    @apply rounded-xl border border-line bg-surface px-3 py-3 text-left transition duration-200
+           ease-out hover:border-ink-3 active:scale-[0.98]
+           disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100;
+  }
+  .tile-on {
+    @apply border-clay bg-clay-soft ring-2 ring-clay/70;
+  }
+
+  .chip {
+    @apply inline-flex min-h-9 items-center rounded-full border border-line bg-surface px-3.5
+           text-[13px] text-ink-2 transition duration-200 hover:border-ink-3 hover:text-ink
+           active:scale-[0.97] disabled:opacity-40;
+  }
+
+  /* A loading placeholder with a slow warm sheen. */
+  .skeleton {
+    @apply animate-shimmer rounded-lg;
+    background: linear-gradient(
+      90deg,
+      oklch(var(--sand)) 0%,
+      oklch(var(--line) / 0.55) 40%,
+      oklch(var(--sand)) 80%
+    );
+    background-size: 200% 100%;
+  }
+
+  /* Inline notices. Colour carries the meaning; no icons needed. */
+  .notice {
+    @apply rounded-xl px-4 py-3 text-[13px] leading-relaxed;
+  }
+  .notice-info {
+    @apply notice bg-sand text-ink-2;
+  }
+  .notice-warn {
+    @apply notice bg-amber-soft text-ink;
+  }
+  .notice-danger {
+    @apply notice bg-danger-soft text-danger;
+  }
+  .notice-good {
+    @apply notice bg-naira-soft text-naira;
+  }
+}
+
+@layer utilities {
+  /* Stagger children of a `.stagger` parent on entry. */
+  .stagger > * {
+    @apply animate-rise;
+  }
+  .stagger > *:nth-child(2) { animation-delay: 60ms; }
+  .stagger > *:nth-child(3) { animation-delay: 120ms; }
+  .stagger > *:nth-child(4) { animation-delay: 180ms; }
+  .stagger > *:nth-child(5) { animation-delay: 240ms; }
+  .stagger > *:nth-child(n + 6) { animation-delay: 300ms; }
+
+  /* Room for the sticky action bar plus the phone's home indicator. */
+  .pb-bar {
+    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
   }
 }
