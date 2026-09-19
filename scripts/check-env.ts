@@ -91,6 +91,30 @@ if (!set("CNGN_EGRESS_PROXY_URL")) {
        "cNGN 403s any non-whitelisted source");
 } else pass("CNGN_EGRESS_PROXY_URL", env.CNGN_EGRESS_PROXY_URL.replace(/:\/\/[^@]+@/, "://***@"));
 
+console.log("\nSelf identity verification (optional)");
+
+if (!set("SELF_API_KEY")) {
+  note("SELF_API_KEY unset — identity verification is off", "nothing else depends on it");
+} else {
+  const k = env.SELF_API_KEY;
+  if (!/^sk_(test|live)_/.test(k)) fail("SELF_API_KEY must start with sk_test_ or sk_live_", mask("SELF_API_KEY"));
+  else pass("SELF_API_KEY", `${k.startsWith("sk_live") ? "live" : "TEST — mock passports verify"}  ${mask("SELF_API_KEY")}`);
+
+  if (!set("SELF_FLOW_ID")) fail("SELF_FLOW_ID is empty", "sessions cannot be created without it");
+  else if (!/^[0-9a-f-]{36}$/i.test(env.SELF_FLOW_ID)) fail("SELF_FLOW_ID is not a UUID", mask("SELF_FLOW_ID"));
+  else pass("SELF_FLOW_ID", env.SELF_FLOW_ID);
+
+  // Without it status still resolves (self-verify polls Self), but the
+  // nullifier never arrives, so one passport can verify any number of senders.
+  if (!set("SELF_WEBHOOK_SECRET")) note("SELF_WEBHOOK_SECRET is empty", "duplicate-person detection is off");
+  else if (!env.SELF_WEBHOOK_SECRET.startsWith("whsec_")) fail("SELF_WEBHOOK_SECRET must start with whsec_");
+  else pass("SELF_WEBHOOK_SECRET", mask("SELF_WEBHOOK_SECRET"));
+
+  if (!/^https?:\/\/[^*\s]+$/.test(env.WEB_ORIGIN ?? "")) {
+    note("WEB_ORIGIN unset", "Self cannot send the sender back to the app after verifying");
+  } else pass("WEB_ORIGIN", env.WEB_ORIGIN);
+}
+
 console.log("\nChain");
 
 const chainId = Number(env.CELO_CHAIN_ID ?? 42220);

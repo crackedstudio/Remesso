@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useAccount, useReadContract, useReadContracts, useSimulateContract } from "wagmi";
 import { isMiniPay } from "./wagmi";
 import { supabase } from "./supabase";
+import { identityStanding } from "./api";
 import { executorAbi, erc20Abi, quoterAbi } from "./abi";
 import {
   CNGN,
@@ -90,6 +91,21 @@ export function useRuns(scheduleId: string) {
       if (error) throw new Error(error.message);
       return (data ?? []) as Run[];
     },
+  });
+}
+
+/// The sender's Self verification standing. Optional and gates nothing — it is
+/// read for the badge only, never by anything that decides whether a run pays.
+///
+/// Polls while an attempt is open: the sender finishes in the Self app, not
+/// here, so nothing in this browser signals completion except asking.
+export function useIdentity() {
+  const { data: senderId } = useSenderId();
+  return useQuery({
+    queryKey: ["identity", senderId],
+    enabled: Boolean(senderId),
+    queryFn: identityStanding,
+    refetchInterval: (q) => (q.state.data?.latest?.status === "pending" ? 10_000 : false),
   });
 }
 

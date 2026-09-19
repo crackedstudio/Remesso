@@ -7,17 +7,28 @@ import "server-only";
 /// AES key and Ed25519 key exist — and therefore the single source IP that has
 /// to be whitelisted with cNGN.
 
-const FUNCTIONS_URL = () => {
+const FUNCTIONS_URL = (name: string) => {
   const base = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!base) throw new Error("SUPABASE_URL is not set");
-  return `${base.replace(/\/$/, "")}/functions/v1/cngn-proxy`;
+  return `${base.replace(/\/$/, "")}/functions/v1/${name}`;
 };
 
 export type ProxyResult<T> =
   | { ok: true; data: T }
   | { ok: false; status: number; error: string };
 
-export async function callCngn<T>(
+export function callCngn<T>(
+  authorization: string | null,
+  body: Record<string, unknown>,
+): Promise<ProxyResult<T>> {
+  return callFunction<T>("cngn-proxy", "payout provider", authorization, body);
+}
+
+/// The same hop for any Edge Function that re-checks the sender's JWT itself.
+/// `self-verify` uses it so the Self API key stays server-side too.
+export async function callFunction<T>(
+  name: string,
+  service: string,
   authorization: string | null,
   body: Record<string, unknown>,
 ): Promise<ProxyResult<T>> {
@@ -27,7 +38,7 @@ export async function callCngn<T>(
 
   let res: Response;
   try {
-    res = await fetch(FUNCTIONS_URL(), {
+    res = await fetch(FUNCTIONS_URL(name), {
       method: "POST",
       headers: {
         Authorization: authorization,
@@ -38,7 +49,7 @@ export async function callCngn<T>(
       cache: "no-store",
     });
   } catch (e) {
-    return { ok: false, status: 502, error: `payout provider unreachable: ${(e as Error).message}` };
+    return { ok: false, status: 502, error: `${service} unreachable: ${(e as Error).message}` };
   }
 
   const json = await res.json().catch(() => ({}));

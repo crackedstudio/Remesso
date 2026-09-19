@@ -7,6 +7,7 @@ import { useAllowance, useBalances, useIsMiniPay, useSchedules } from "@/lib/hoo
 import { recipientLabel } from "@/lib/identity";
 import { formatUnits, intervalLabel, relativeTime } from "@/lib/format";
 import { SchedulePill } from "@/components/StatusPill";
+import { IdentityCard } from "@/components/IdentityCard";
 import { ActionBar, Amount, MINIPAY_DEPOSIT_URL, Skeleton } from "@/components/ui";
 import { isConfigured, tokenFor, USDT, type TokenInfo } from "@/lib/config";
 import { one, type Schedule } from "@/lib/types";
@@ -111,6 +112,8 @@ export default function SchedulesPage() {
           at once — no need to tell us.
         </p>
       </details>
+
+      <IdentityCard />
 
       <section className="mt-8">
         <div className="mb-3 flex items-baseline justify-between">

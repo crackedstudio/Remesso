@@ -31,6 +31,26 @@ export async function fetchBanks(): Promise<Bank[]> {
   return (await authedFetch("/api/cngn/banks")).data;
 }
 
+/// Where the sender stands with Self. `verified` survives later failed
+/// attempts; `latest` is the most recent attempt, whatever its outcome.
+export type IdentityStanding = {
+  available: boolean;
+  verified: { environment: "test" | "live" | null; completedAt: string | null } | null;
+  latest: {
+    status: "pending" | "valid" | "invalid" | "error" | "expired" | "duplicate";
+    reason: string | null;
+    verificationUrl: string | null;
+  } | null;
+};
+
+export async function identityStanding(): Promise<IdentityStanding> {
+  return (await authedFetch("/api/self", { method: "POST", body: JSON.stringify({ op: "status" }) })).data;
+}
+
+export async function startIdentityCheck(): Promise<{ verificationUrl: string }> {
+  return (await authedFetch("/api/self", { method: "POST", body: JSON.stringify({ op: "start" }) })).data;
+}
+
 export async function verifyAccount(
   bankCode: string,
   accountNumber: string,
