@@ -12,7 +12,6 @@ import { DescribeSchedule, tokenFromSymbol } from "@/components/DescribeSchedule
 import type { Draft } from "@/lib/ai";
 import { erc20Abi, executorAbi, PayoutType } from "@/lib/abi";
 import {
-  CNGN,
   CNGN_REDEMPTION_ADDRESS,
   EXECUTOR_ADDRESS,
   USDT,
@@ -21,7 +20,7 @@ import {
 } from "@/lib/config";
 import { supabase, ensureSender } from "@/lib/supabase";
 import { useAllowance, useMarketRate, useUsdtBalance } from "@/lib/hooks";
-import { formatUnits, intervalLabel, rateToNairaPerUsd } from "@/lib/format";
+import { everyLabel, formatUnits, rateToNairaPerUsd, spanLabel } from "@/lib/format";
 import {
   RecipientStep,
   emptyRecipient,
@@ -29,14 +28,28 @@ import {
   type RecipientDraft,
 } from "@/components/RecipientStep";
 import { TermsStep, amountInUnits, defaultTerms, type TermsDraft } from "@/components/TermsStep";
+import { ActionBar, Amount, MINIPAY_DEPOSIT_URL, Row } from "@/components/ui";
+import { useIsMiniPay } from "@/lib/hooks";
+import { isAddress } from "viem";
 
-const STEPS = ["Recipient", "Terms", "Authorise"] as const;
+const STEPS = ["Who", "How much", "Review"] as const;
+
+/// What the sender is waiting on while `authorise` runs. Each `busy` string
+/// maps to one of these so the screen shows where they are in the sequence,
+/// not just that something is happening.
+const PHASES = [
+  { key: "Preparing", label: "Saving the details" },
+  { key: "Approve", label: "Approve in your wallet" },
+  { key: "Sign", label: "Sign the authorisation" },
+  { key: "Confirming", label: "Confirming on the network" },
+] as const;
 
 export default function NewSchedulePage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { address, isConnected } = useAccount();
   const { writeContractAsync } = useWriteContract();
+  const inMiniPay = useIsMiniPay();
 
   const [step, setStep] = useState(0);
   const [recipient, setRecipient] = useState<RecipientDraft>(emptyRecipient);
@@ -60,14 +73,31 @@ export default function NewSchedulePage() {
   const requiredAllowance = amountIn ? amountIn * BigInt(runsToCover) : 0n;
   const needsApproval = allowance !== undefined && allowance < requiredAllowance;
 
-  const canContinue =
-    step === 0 ? recipientIsComplete(recipient) : step === 1 ? Boolean(amountIn && terms.expiresAt) : true;
+  // Why Continue is disabled, said out loud. A greyed button with no reason
+  // is the most common way a form loses someone.
+  const blocker =
+    step === 0
+      ? !recipient.displayName.trim()
+        ? "Give them a name to continue"
+        : recipient.payoutType !== "ngn_bank" && !isAddress(recipient.walletAddress)
+          ? "Enter their wallet address to continue"
+          : recipient.payoutType === "ngn_bank" && !recipientIsComplete(recipient)
+            ? "Verify the bank account to continue"
+            : null
+      : step === 1
+        ? !amountIn
+          ? "Enter an amount to continue"
+          : !terms.expiresAt
+            ? "Choose an expiry date to continue"
+            : null
+        : null;
+  const canContinue = blocker === null;
 
   if (!isConfigured()) {
-    return <Warn>The executor contract address is not configured.</Warn>;
+    return <div className="notice-warn mt-2">The executor contract address is not configured.</div>;
   }
   if (!isConnected) {
-    return <Warn>Connect your wallet to create a schedule.</Warn>;
+    return <div className="notice-warn mt-2">Connect your wallet to create a schedule.</div>;
   }
 
   /// Apply an assistant draft over both steps.
@@ -117,7 +147,7 @@ export default function NewSchedulePage() {
     }
 
     try {
-      setBusy("Preparing…");
+      setBusy("Preparing");
       const senderId = await ensureSender(address);
       const sb = supabase();
 
@@ -169,7 +199,7 @@ export default function NewSchedulePage() {
       if (sErr) throw new Error(sErr.message);
 
       if (needsApproval) {
-        setBusy("Approve USDT in your wallet…");
+        setBusy("Approve");
         const approveHash = await writeContractAsync({
           address: fundingToken.address,
           abi: erc20Abi,
@@ -177,11 +207,11 @@ export default function NewSchedulePage() {
           args: [EXECUTOR_ADDRESS, requiredAllowance],
           ...txOverrides(),
         });
-        setBusy("Waiting for the approval to confirm…");
+        setBusy("Approve");
         await waitForTransactionReceipt(wagmiConfig, { hash: approveHash });
       }
 
-      setBusy("Sign the authorisation…");
+      setBusy("Sign");
       const hash = await writeContractAsync({
         address: EXECUTOR_ADDRESS,
         abi: executorAbi,
@@ -204,7 +234,7 @@ export default function NewSchedulePage() {
         ...txOverrides(),
       });
 
-      setBusy("Confirming on Celo…");
+      setBusy("Confirming");
       const receipt = await waitForTransactionReceipt(wagmiConfig, { hash, confirmations: 1 });
 
       // The id comes from the event, not from a return value: a transaction's
@@ -218,7 +248,7 @@ export default function NewSchedulePage() {
 
       const onchainId = created.args.id.toString();
 
-      setBusy("Saving…");
+      setBusy("Confirming");
       const { error: uErr } = await sb
         .from("schedules")
         .update({
@@ -233,7 +263,7 @@ export default function NewSchedulePage() {
       if (uErr) throw new Error(uErr.message);
 
       await queryClient.invalidateQueries({ queryKey: ["schedules"] });
-      router.push(`/schedules/${scheduleRow.id}`);
+      router.push(`/schedules/${scheduleRow.id}?created=1`);
     } catch (e) {
       setError(friendly((e as Error).message));
     } finally {
@@ -241,24 +271,13 @@ export default function NewSchedulePage() {
     }
   }
 
-  return (
-    <div className="space-y-5">
-      <ol className="flex items-center gap-2 text-xs">
-        {STEPS.map((s, i) => (
-          <li key={s} className="flex items-center gap-2">
-            <span
-              className={`rounded-full px-2.5 py-1 ${
-                i === step ? "bg-ink text-white" : i < step ? "bg-emerald-100 text-emerald-800" : "bg-black/5 text-black/40"
-              }`}
-            >
-              {s}
-            </span>
-            {i < STEPS.length - 1 && <span className="text-black/20">›</span>}
-          </li>
-        ))}
-      </ol>
+  const phase = busy ? PHASES.findIndex((p) => p.key === busy) : -1;
 
-      <div className="card">
+  return (
+    <div className="pb-bar">
+      <Progress step={step} />
+
+      <div key={step} className="animate-rise mt-6">
         {step === 0 && (
           <>
             <DescribeSchedule onDraft={applyDraft} />
@@ -279,17 +298,48 @@ export default function NewSchedulePage() {
             requiredAllowance={requiredAllowance}
             needsApproval={needsApproval}
             balance={balance}
+            inMiniPay={inMiniPay}
           />
         )}
       </div>
 
-      {error && (
-        <div className="card border-red-300 bg-red-50 text-sm text-red-800">{error}</div>
+      {busy && (
+        <ol className="notice-info mt-4 space-y-2" aria-live="polite">
+          {PHASES.map((p, i) => {
+            // The approval phase only exists when one is needed; hide it
+            // rather than show a step that will be skipped.
+            if (p.key === "Approve" && !needsApproval) return null;
+            const state = i < phase ? "done" : i === phase ? "now" : "later";
+            return (
+              <li key={p.key} className={`flex items-center gap-2.5 ${state === "later" ? "text-ink-3" : "text-ink"}`}>
+                <span
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] ${
+                    state === "done"
+                      ? "bg-naira text-surface"
+                      : state === "now"
+                        ? "bg-clay text-surface animate-pulse2"
+                        : "border border-line"
+                  }`}
+                  aria-hidden
+                >
+                  {state === "done" ? "✓" : ""}
+                </span>
+                {p.label}
+              </li>
+            );
+          })}
+        </ol>
       )}
 
-      <div className="flex gap-2">
+      {error && (
+        <div className="notice-danger mt-4 animate-rise" role="alert">
+          {error}
+        </div>
+      )}
+
+      <ActionBar note={!busy && blocker ? blocker : undefined}>
         {step > 0 && (
-          <button className="btn-ghost" disabled={Boolean(busy)} onClick={() => setStep(step - 1)}>
+          <button className="btn-ghost px-4" disabled={Boolean(busy)} onClick={() => setStep(step - 1)} aria-label="Back">
             Back
           </button>
         )}
@@ -297,16 +347,43 @@ export default function NewSchedulePage() {
           <button
             className="btn-primary flex-1"
             disabled={!canContinue}
-            onClick={() => setStep(step + 1)}
+            onClick={() => {
+              setStep(step + 1);
+              window.scrollTo({ top: 0 });
+            }}
           >
             Continue
           </button>
         ) : (
           <button className="btn-primary flex-1" disabled={Boolean(busy)} onClick={authorise}>
-            {busy ?? (needsApproval ? "Approve & authorise" : "Authorise")}
+            {busy ? "Working…" : needsApproval ? "Approve & authorise" : "Authorise"}
           </button>
         )}
+      </ActionBar>
+    </div>
+  );
+}
+
+/// Three thin segments and a sentence. It reads at a glance on a 360px screen,
+/// where a row of labelled pills wraps.
+function Progress({ step }: { step: number }) {
+  return (
+    <div className="mt-1">
+      <div className="flex gap-1.5" aria-hidden>
+        {STEPS.map((s, i) => (
+          <span
+            key={s}
+            className={`h-1 flex-1 rounded-full transition-colors duration-500 ${
+              i <= step ? "bg-clay" : "bg-line"
+            }`}
+          />
+        ))}
       </div>
+      <p className="mt-2.5 text-[13px] text-ink-2">
+        Step {step + 1} of {STEPS.length}
+        <span className="text-ink-3"> · </span>
+        <span className="font-medium text-ink">{STEPS[step]}</span>
+      </p>
     </div>
   );
 }
@@ -321,6 +398,7 @@ function Review({
   requiredAllowance,
   needsApproval,
   balance,
+  inMiniPay,
 }: {
   recipient: RecipientDraft;
   terms: TermsDraft;
@@ -331,80 +409,82 @@ function Review({
   requiredAllowance: bigint;
   needsApproval: boolean;
   balance?: bigint;
+  inMiniPay: boolean;
 }) {
   const floorE6 = converts && marketRateE6
     ? (marketRateE6 * BigInt(100 - terms.floorPercent)) / 100n
     : undefined;
   const short = balance !== undefined && amountIn !== null && balance < amountIn;
+  const isBank = recipient.payoutType === "ngn_bank";
 
   return (
-    <div className="space-y-4">
-      <dl className="divide-y divide-black/5 text-sm">
-        <Row label="To">
-          {recipient.displayName}
-          <span className="block text-xs text-black/50">
-            {recipient.payoutType === "ngn_bank"
-              ? `${recipient.accountName} · ${recipient.accountNumber}`
-              : recipient.walletAddress}
-          </span>
-        </Row>
-        <Row label="Each transfer">
-          <span className="mono">
-            {amountIn ? formatUnits(amountIn, token.decimals) : "—"} {token.symbol}
-          </span>
-        </Row>
-        <Row label="Frequency">{intervalLabel(terms.intervalSeconds)}</Row>
-        <Row label={converts ? "Rate floor" : "Conversion"}>
-          {!converts
-            ? `None — they receive ${token.symbol}`
-            : floorE6 ? `₦${rateToNairaPerUsd(floorE6).toFixed(0)} per USDT` : "—"}
-          <span className="block text-xs text-black/50">
-            {terms.floorPercent}% below the current rate. Runs below this are skipped, not
-            executed.
-          </span>
-        </Row>
+    <div>
+      {/* The headline: the number and the person. Everything below is detail. */}
+      <div className="rounded-2xl bg-clay-soft/70 px-5 py-6">
+        <p className="eyebrow text-clay-deep">{everyLabel(terms.intervalSeconds)}</p>
+        <Amount
+          value={amountIn ? formatUnits(amountIn, token.decimals) : "—"}
+          unit={token.symbol}
+          size="hero"
+          className="mt-2"
+        />
+        <p className="mt-3 text-[16px] text-ink">
+          to <span className="font-medium">{recipient.displayName}</span>
+        </p>
+        <p className="text-[13px] text-ink-2">
+          {isBank
+            ? `${recipient.accountName} · ${recipient.accountNumber}`
+            : converts
+              ? "Converted to cNGN in their wallet"
+              : `As ${token.symbol}, straight to their wallet`}
+        </p>
+      </div>
+
+      <dl className="mt-2 divide-y divide-line/70 px-1">
+        {converts && (
+          <Row
+            label="Rate floor"
+            sub={`${terms.floorPercent}% below today. A run below this is skipped, never forced.`}
+          >
+            {floorE6 ? `₦${rateToNairaPerUsd(floorE6).toFixed(0)} per USDT` : "—"}
+          </Row>
+        )}
         <Row label="Transfers">{terms.maxRuns || "Until you stop it"}</Row>
-        <Row label="Expires">{terms.expiresAt}</Row>
-        <Row label="You will approve">
-          <span className="mono">
-            {formatUnits(requiredAllowance, token.decimals)} {token.symbol}
-          </span>
-          <span className="block text-xs text-black/50">
-            {needsApproval
-              ? "One approval covers every run. Revoke it any time to stop everything."
-              : "Your existing allowance already covers this."}
-          </span>
+        <Row label="First one">{terms.startNow ? "Right away" : `In ${spanLabel(terms.intervalSeconds)}`}</Row>
+        <Row label="Expires">{new Date(`${terms.expiresAt}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</Row>
+        <Row
+          label="You approve"
+          sub={
+            needsApproval
+              ? "One approval covers every run. Revoke it in your wallet to stop everything."
+              : "Your existing approval already covers this."
+          }
+        >
+          {formatUnits(requiredAllowance, token.decimals)} {token.symbol}
         </Row>
       </dl>
 
       {short && (
-        <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
-          Your wallet holds {formatUnits(balance!, token.decimals)} {token.symbol}, less than
-          one transfer. The
-          schedule will be created but runs will be skipped until you top up.
-        </p>
+        <div className="notice-warn mt-3 flex items-center justify-between gap-3">
+          <span>
+            You hold {formatUnits(balance!, token.decimals)} {token.symbol} — less than one
+            transfer. Runs will be skipped until you top up.
+          </span>
+          {inMiniPay && (
+            <a href={MINIPAY_DEPOSIT_URL} className="btn-ink btn-sm shrink-0">
+              Add money
+            </a>
+          )}
+        </div>
       )}
 
-      <p className="rounded-lg bg-black/[0.03] p-3 text-xs leading-relaxed text-black/60">
-        Signing fixes the destination, the amount, the cadence and the floor rate on Celo.
-        Remesso&rsquo;s backend can only trigger a run inside those limits — it cannot change
-        any of them, and it cannot send anywhere else.
+      <p className="mt-4 px-1 text-[13px] leading-relaxed text-ink-2">
+        Signing fixes the person, the amount, the rhythm{converts ? " and the floor rate" : ""} on
+        Celo. Remesso can only trigger a run inside those limits — it cannot change any of
+        them, and it cannot send anywhere else.
       </p>
     </div>
   );
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex justify-between gap-4 py-2.5">
-      <dt className="shrink-0 text-black/50">{label}</dt>
-      <dd className="text-right">{children}</dd>
-    </div>
-  );
-}
-
-function Warn({ children }: { children: React.ReactNode }) {
-  return <div className="card border-amber-300 bg-amber-50 text-sm text-amber-900">{children}</div>;
 }
 
 /// Wallet errors are long and mostly internal. Surface the part a sender can

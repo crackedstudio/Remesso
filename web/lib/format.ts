@@ -89,6 +89,23 @@ export function intervalLabel(seconds: number | bigint): string {
   return `Every ${s}s`;
 }
 
+/// The cadence as a phrase: "every week", "every 5 minutes". For sentences.
+export function everyLabel(seconds: number | bigint): string {
+  const s = Number(seconds);
+  const named: Record<number, string> = {
+    [7 * 86400]: "every week",
+    [14 * 86400]: "every two weeks",
+    [30 * 86400]: "every month",
+    [90 * 86400]: "every quarter",
+  };
+  return named[s] ?? intervalLabel(s).toLowerCase();
+}
+
+/// The cadence as a duration: "a week", "two weeks", "5 minutes". For "in …".
+export function spanLabel(seconds: number | bigint): string {
+  return everyLabel(seconds).replace(/^every /, "").replace(/^(week|month|quarter)$/, "a $1");
+}
+
 export function relativeTime(iso: string | number | null | undefined): string {
   if (!iso) return "—";
   const t = typeof iso === "number" ? iso * 1000 : Date.parse(iso);
