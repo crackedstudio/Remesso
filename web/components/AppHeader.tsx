@@ -1,41 +1,57 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ConnectBar } from "./ConnectBar";
 
-const TABS = [
-  { href: "/", label: "Schedules" },
-  { href: "/schedules/new", label: "New" },
+/// The header is contextual rather than a tab bar. There are only two places to
+/// be — the list and one schedule — so on the list it is the wordmark, and
+/// everywhere else it is a way back. Opay and Moniepoint users expect exactly
+/// this shape; a persistent tab strip for two destinations is noise.
+const TITLES: Array<[RegExp, string]> = [
+  [/^\/schedules\/new/, "New schedule"],
+  [/^\/schedules\/[^/]+/, "Schedule"],
 ];
 
 export function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
+  const title = TITLES.find(([re]) => re.test(pathname))?.[1];
 
   return (
-    <header className="sticky top-0 z-10 -mx-4 mb-6 border-b border-black/10 bg-paper/90 px-4 py-3 backdrop-blur">
-      <div className="flex items-center justify-between gap-3">
-        <Link href="/" className="text-lg font-semibold tracking-tight">
-          Remesso
-        </Link>
+    <header className="sticky top-0 z-20 bg-paper/85 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-md">
+      <div className="flex h-10 items-center justify-between gap-3">
+        {title ? (
+          <button
+            type="button"
+            onClick={() => (window.history.length > 1 ? router.back() : router.push("/"))}
+            className="-ml-2 flex min-h-11 items-center gap-1 rounded-xl pl-2 pr-3 text-[15px] font-medium text-ink transition hover:bg-sand active:scale-[0.98]"
+            aria-label="Back"
+          >
+            <Chevron />
+            <span>{title}</span>
+          </button>
+        ) : (
+          <Link href="/" className="font-display text-[26px] leading-none text-ink">
+            Remesso
+          </Link>
+        )}
         <ConnectBar />
       </div>
-      <nav className="mt-3 flex gap-1">
-        {TABS.map((t) => {
-          const active = t.href === "/" ? pathname === "/" : pathname.startsWith(t.href);
-          return (
-            <Link
-              key={t.href}
-              href={t.href}
-              className={`rounded-lg px-3 py-1.5 text-sm transition ${
-                active ? "bg-ink text-white" : "text-black/60 hover:bg-black/5"
-              }`}
-            >
-              {t.label}
-            </Link>
-          );
-        })}
-      </nav>
     </header>
+  );
+}
+
+function Chevron() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <path
+        d="M12.5 4.5 7 10l5.5 5.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
