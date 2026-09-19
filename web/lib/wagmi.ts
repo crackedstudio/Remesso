@@ -41,3 +41,36 @@ export function isMiniPay(): boolean {
   const eth = (window as unknown as { ethereum?: { isMiniPay?: boolean } }).ethereum;
   return Boolean(eth?.isMiniPay);
 }
+
+/// Whether this is MiniPay, waiting for the provider if it is not there yet.
+///
+/// Reading `isMiniPay()` once at mount is not enough. When the provider is
+/// injected after our first render, that read says "not MiniPay", the page
+/// renders a Connect button MiniPay's listing rules forbid, and auto-connect
+/// never runs. Seen on device 2026-09-19.
+///
+/// A provider that is already present answers immediately either way — a
+/// desktop wallet is not made to wait. Only a missing one is waited for, via
+/// the `ethereum#initialized` event wallets fire on late injection, with a
+/// poll as a backstop.
+let detected: Promise<boolean> | null = null;
+export function detectMiniPay(timeoutMs = 3000): Promise<boolean> {
+  if (typeof window === "undefined") return Promise.resolve(false);
+  if (detected) return detected;
+  detected = new Promise<boolean>((resolve) => {
+    const eth = () => (window as unknown as { ethereum?: { isMiniPay?: boolean } }).ethereum;
+    if (eth()) return resolve(Boolean(eth()!.isMiniPay));
+
+    const done = (v: boolean) => {
+      clearInterval(poll);
+      clearTimeout(timer);
+      window.removeEventListener("ethereum#initialized", onInit);
+      resolve(v);
+    };
+    const onInit = () => done(Boolean(eth()?.isMiniPay));
+    const poll = setInterval(() => eth() && done(Boolean(eth()!.isMiniPay)), 100);
+    const timer = setTimeout(() => done(Boolean(eth()?.isMiniPay)), timeoutMs);
+    window.addEventListener("ethereum#initialized", onInit, { once: true });
+  });
+  return detected;
+}
