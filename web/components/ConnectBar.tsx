@@ -2,7 +2,7 @@
 
 import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } from "wagmi";
 import { activeChain } from "@/lib/wagmi";
-import { useIsMiniPay } from "@/lib/hooks";
+import { useMiniPayState } from "@/lib/hooks";
 import { addressName } from "@/lib/identity";
 
 export function ConnectBar({ compact = false }: { compact?: boolean }) {
@@ -11,13 +11,16 @@ export function ConnectBar({ compact = false }: { compact?: boolean }) {
   const { disconnect } = useDisconnect();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
-  const inMiniPay = useIsMiniPay();
+  const miniPay = useMiniPayState();
+  const inMiniPay = miniPay === true;
 
   if (!isConnected) {
     // MiniPay injects one account and connects itself on load (see
     // MiniPayAutoConnect). A button there offers a choice that does not exist,
     // and pressing it races the auto-connect already in flight.
-    if (inMiniPay) {
+    // Also while detection is still running: a button that flashes and then
+    // vanishes when MiniPay turns up is still a button MiniPay saw.
+    if (miniPay !== false) {
       return (
         <span className="flex items-center gap-2 text-[13px] text-ink-3">
           <Dot className="bg-ink-3 animate-pulse2" />
@@ -64,7 +67,7 @@ export function ConnectBar({ compact = false }: { compact?: boolean }) {
         <span className="truncate">{addressName(address)}</span>
       </span>
       {/* MiniPay owns the session; disconnecting inside it just strands the app. */}
-      {!inMiniPay && !compact && (
+      {miniPay === false && !compact && (
         <button
           className="min-h-11 px-1 text-[13px] text-ink-3 transition hover:text-ink"
           onClick={() => disconnect()}

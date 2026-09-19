@@ -20,6 +20,7 @@ import {
   relativeTime,
 } from "@/lib/format";
 import { RunPill, SchedulePill } from "@/components/StatusPill";
+import { ReapproveButton } from "@/components/Reapprove";
 import { Amount, MINIPAY_DEPOSIT_URL, Row, Sheet, Skeleton } from "@/components/ui";
 import { one, type Run } from "@/lib/types";
 
@@ -196,7 +197,12 @@ export default function ScheduleDetailPage() {
               ok={runnability.approved}
               label="Approval covers the next run"
               failLabel="Approval no longer covers a run"
-              fix={`Re-approve ${token.symbol} in your wallet to resume.`}
+              fix={
+                <>
+                  Remesso&rsquo;s approval to move your {token.symbol} is used up.
+                  <ReapproveButton token={token} />
+                </>
+              }
             />
             <Check
               ok={runnability.due || schedule.status !== "active"}
@@ -400,10 +406,10 @@ function Check({
       >
         {ok ? "✓" : neutral ? "" : "!"}
       </span>
-      <span className="text-[15px] text-ink">
+      <div className="text-[15px] text-ink">
         {ok ? label : failLabel}
-        {!ok && <span className="block text-[13px] text-ink-2">{fix}</span>}
-      </span>
+        {!ok && <div className="text-[13px] text-ink-2">{fix}</div>}
+      </div>
     </li>
   );
 }

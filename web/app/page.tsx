@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useAccount, useConnect } from "wagmi";
-import { useAllowance, useBalances, useIsMiniPay, useSchedules } from "@/lib/hooks";
+import { useBalances, useIsMiniPay, useMiniPayState, useSchedules } from "@/lib/hooks";
 import { recipientLabel } from "@/lib/identity";
 import { formatUnits, intervalLabel, relativeTime } from "@/lib/format";
 import { SchedulePill } from "@/components/StatusPill";
+import { IdentityCard } from "@/components/IdentityCard";
+import { ReapproveButton, useApprovalCover } from "@/components/Reapprove";
 import { ActionBar, Amount, MINIPAY_DEPOSIT_URL, Skeleton } from "@/components/ui";
 import { isConfigured, tokenFor, USDT, type TokenInfo } from "@/lib/config";
 import { one, type Schedule } from "@/lib/types";
@@ -18,7 +20,6 @@ export default function SchedulesPage() {
   // the switcher only changes which per-asset figure and allowance appear.
   const [token, setToken] = useState<TokenInfo>(USDT);
   const { balances, totalUsd6 } = useBalances();
-  const { data: allowance } = useAllowance(token.address);
   const inMiniPay = useIsMiniPay();
 
   if (!isConfigured()) {
@@ -89,28 +90,9 @@ export default function SchedulesPage() {
         </div>
       </section>
 
-      {/* The allowance is the sender's kill switch, so it is stated as one —
-          but under a disclosure, because a returning sender came to check on
-          a payment, not to re-read the security model. */}
-      <details className="group mt-3 rounded-xl bg-sand/70">
-        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-4 text-[13px] text-ink-2 [&::-webkit-details-marker]:hidden">
-          <span>
-            Remesso can move up to{" "}
-            <span className="font-medium text-ink">
-              {allowance !== undefined ? formatUnits(allowance, token.decimals) : "—"} {token.symbol}
-            </span>{" "}
-            in total
-          </span>
-          <span className="text-ink-3 transition group-open:rotate-180" aria-hidden>
-            ▾
-          </span>
-        </summary>
-        <p className="px-4 pb-3 text-[13px] leading-relaxed text-ink-2">
-          That is the hard ceiling on the {token.symbol} Remesso can ever move, across all
-          your schedules funded in it. Revoke it in your wallet and every one of them stops
-          at once — no need to tell us.
-        </p>
-      </details>
+      <ApprovalStrip token={token} />
+
+      <IdentityCard />
 
       <section className="mt-8">
         <div className="mb-3 flex items-baseline justify-between">
@@ -158,6 +140,64 @@ export default function SchedulesPage() {
         </Link>
       </ActionBar>
     </div>
+  );
+}
+
+/// The allowance, stated against the schedules that depend on it.
+///
+/// Three states, because one sentence cannot cover them honestly:
+///   stuck    an active schedule cannot make even one payment — say so first,
+///            and offer the fix here, since MiniPay has nowhere else to do it
+///   unused   nothing draws on this asset and nothing is approved — one quiet line
+///   covered  the ceiling, under a disclosure: a returning sender came to
+///            check on a payment, not to re-read the security model
+function ApprovalStrip({ token }: { token: TokenInfo }) {
+  const { allowance, active, stuck } = useApprovalCover(token);
+
+  if (stuck) {
+    const n = active.length;
+    return (
+      <div className="notice-warn mt-3">
+        <p className="font-medium">
+          {n === 1 ? "Your schedule" : `${n} schedules`} paid in {token.symbol} can&rsquo;t run
+        </p>
+        <p className="mt-0.5">
+          Remesso&rsquo;s approval to move your {token.symbol} is used up, so the next
+          payment will be skipped. Approve again to keep {n === 1 ? "it" : "them"} going.
+        </p>
+        <ReapproveButton token={token} />
+      </div>
+    );
+  }
+
+  if (allowance === 0n && !active.length) {
+    return (
+      <p className="mt-3 flex min-h-11 items-center rounded-xl bg-sand/70 px-4 text-[13px] text-ink-2">
+        No schedules are paid in {token.symbol}.
+      </p>
+    );
+  }
+
+  return (
+    <details className="group mt-3 rounded-xl bg-sand/70">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-4 text-[13px] text-ink-2 [&::-webkit-details-marker]:hidden">
+        <span>
+          Remesso can move up to{" "}
+          <span className="font-medium text-ink">
+            {allowance !== undefined ? formatUnits(allowance, token.decimals) : "—"} {token.symbol}
+          </span>{" "}
+          in total
+        </span>
+        <span className="text-ink-3 transition group-open:rotate-180" aria-hidden>
+          ▾
+        </span>
+      </summary>
+      <p className="px-4 pb-3 text-[13px] leading-relaxed text-ink-2">
+        That is the most Remesso can ever take from your {token.symbol}, across every
+        schedule paid in it — the contract enforces the limit, not us. To stop a payment,
+        pause or cancel its schedule.
+      </p>
+    </details>
   );
 }
 
@@ -246,7 +286,7 @@ function EmptyState() {
 
 /// Seen only outside MiniPay, or for the moment before MiniPay auto-connects.
 function Landing() {
-  const inMiniPay = useIsMiniPay();
+  const miniPay = useMiniPayState();
   const { connect, connectors, isPending } = useConnect();
   const injected = connectors.find((c) => c.id === "injected");
 
@@ -276,7 +316,8 @@ function Landing() {
       </ul>
 
       <div className="mt-8">
-        {inMiniPay ? (
+        {/* No button until we know this is not MiniPay — see ConnectBar. */}
+        {miniPay !== false ? (
           <p className="text-[14px] text-ink-3">Connecting to your wallet…</p>
         ) : (
           <button

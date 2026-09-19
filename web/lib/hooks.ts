@@ -3,8 +3,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useAccount, useReadContract, useReadContracts, useSimulateContract } from "wagmi";
-import { isMiniPay } from "./wagmi";
+import { detectMiniPay } from "./wagmi";
 import { supabase } from "./supabase";
+import { identityStanding } from "./api";
 import { executorAbi, erc20Abi, quoterAbi } from "./abi";
 import {
   CNGN,
@@ -90,6 +91,21 @@ export function useRuns(scheduleId: string) {
       if (error) throw new Error(error.message);
       return (data ?? []) as Run[];
     },
+  });
+}
+
+/// The sender's Self verification standing. Optional and gates nothing — it is
+/// read for the badge only, never by anything that decides whether a run pays.
+///
+/// Polls while an attempt is open: the sender finishes in the Self app, not
+/// here, so nothing in this browser signals completion except asking.
+export function useIdentity() {
+  const { data: senderId } = useSenderId();
+  return useQuery({
+    queryKey: ["identity", senderId],
+    enabled: Boolean(senderId),
+    queryFn: identityStanding,
+    refetchInterval: (q) => (q.state.data?.latest?.status === "pending" ? 10_000 : false),
   });
 }
 
@@ -214,15 +230,27 @@ export function useMarketRate(amountIn: bigint) {
   };
 }
 
-/// `isMiniPay()` read safely during render.
+/// Where MiniPay detection stands: `undefined` while still deciding, then a
+/// boolean. Anything that would render a Connect button must wait for `false`
+/// — rendering one during `undefined` is exactly what MiniPay rejects.
 ///
-/// The bare function touches `window`, so it is false on the server and true on
-/// the client — returning it straight from a render body makes the two passes
-/// disagree and React discards the server HTML. This resolves after mount
-/// instead, so the first paint matches what the server sent. Event handlers
-/// should keep calling `isMiniPay()` directly; they only ever run on the client.
+/// Also hydration-safe: the server and the first client pass both see
+/// `undefined`, so React keeps the server HTML.
+export function useMiniPayState(): boolean | undefined {
+  const [state, setState] = useState<boolean | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    detectMiniPay().then((v) => live && setState(v));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return state;
+}
+
+/// True only once MiniPay is confirmed. For choices that are safe to make as
+/// "not MiniPay" while detection runs (copy, links). Event handlers should
+/// keep calling `isMiniPay()` directly; they only ever run on the client.
 export function useIsMiniPay(): boolean {
-  const [inMiniPay, setInMiniPay] = useState(false);
-  useEffect(() => setInMiniPay(isMiniPay()), []);
-  return inMiniPay;
+  return useMiniPayState() === true;
 }

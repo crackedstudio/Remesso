@@ -71,7 +71,13 @@ export default function NewSchedulePage() {
   // schedule cannot drain a wallet indefinitely.
   const runsToCover = terms.maxRuns ? Number(terms.maxRuns) : 12;
   const requiredAllowance = amountIn ? amountIn * BigInt(runsToCover) : 0n;
-  const needsApproval = allowance !== undefined && allowance < requiredAllowance;
+  // Always approve, and approve what is already there PLUS this schedule's
+  // share. `approve` replaces the allowance rather than adding to it, and the
+  // old `allowance < required` test let a new schedule quietly borrow the
+  // headroom an existing one was counting on — or, when it did approve, set
+  // the total to this schedule's need alone and strand every other schedule
+  // on the same asset. Both ended with active schedules skipping every run.
+  const needsApproval = allowance !== undefined && requiredAllowance > 0n;
 
   // Why Continue is disabled, said out loud. A greyed button with no reason
   // is the most common way a form loses someone.
@@ -211,7 +217,7 @@ export default function NewSchedulePage() {
           address: fundingToken.address,
           abi: erc20Abi,
           functionName: "approve",
-          args: [EXECUTOR_ADDRESS, requiredAllowance],
+          args: [EXECUTOR_ADDRESS, (allowance ?? 0n) + requiredAllowance],
           ...txOverrides(),
         });
         setBusy("Approve");
@@ -461,11 +467,7 @@ function Review({
         <Row label="Expires">{new Date(`${terms.expiresAt}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</Row>
         <Row
           label="You approve"
-          sub={
-            needsApproval
-              ? "One approval covers every run. Revoke it in your wallet to stop everything."
-              : "Your existing approval already covers this."
-          }
+          sub="Added to what you have already approved, so your other schedules keep theirs. Covers every run of this one; pause or cancel it any time."
         >
           {formatUnits(requiredAllowance, token.decimals)} {token.symbol}
         </Row>

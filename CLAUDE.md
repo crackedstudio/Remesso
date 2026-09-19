@@ -12,6 +12,9 @@ Read `README.md` for the why. This file is what you need to not break it.
 # contracts — 17 tests, all must pass
 cd contracts && forge test
 
+# Self webhook signatures — verifies our Svix check against the svix library
+deno test --allow-env supabase/functions/_shared/self.test.ts
+
 # cNGN crypto — verifies our AES/Ed25519 against the docs' reference impls
 deno test --allow-env --allow-read --allow-write --allow-run --allow-net --allow-sys \
   supabase/functions/_shared/cngn.test.ts
@@ -24,7 +27,7 @@ cd web && npx tsc --noEmit && npx next build && npm start   # localhost:3000
 
 # deploy
 supabase functions deploy execute-due-runs cngn-webhook reconcile-redemptions \
-  cngn-proxy balance-poller
+  cngn-proxy balance-poller self-verify self-webhook
 supabase secrets set --env-file .env.functions
 ```
 
@@ -83,9 +86,10 @@ These each cost real time to find. None are visible from the code alone.
    exist. `/withdraw/verify/{ref}` takes withdrawal refs only — a redemption's
    `RD-` ref returns "Transaction not found".
 
-5. **`verify_jwt = false` only on `cngn-webhook`** (`supabase/config.toml`).
-   cNGN sends an HMAC, not a Supabase JWT; at the default every delivery is
-   refused at the edge before our code runs. Do not "fix" this.
+5. **`verify_jwt = false` only on `cngn-webhook` and `self-webhook`**
+   (`supabase/config.toml`). cNGN sends an HMAC and Self a Svix signature, not a
+   Supabase JWT; at the default every delivery is refused at the edge before
+   our code runs. Do not "fix" this.
 
 6. **cNGN rate limit is 20 req/60s per key**, and breaching it blocks the key
    for another 60s. The limiter in `cngn.ts` is **per-isolate** — each Edge
@@ -121,6 +125,38 @@ path for bank payouts, where no wallet is involved.
 
 **Decimals are not uniform.** USDT and USDC are 6dp, cUSD is 18dp, cNGN is 6dp —
 all verified on-chain. `lib/config.ts` holds the map; never hardcode 6.
+
+## Self identity verification — optional, gates nothing
+
+A sender can verify with Self (self.xyz) from the home screen: a Pre-KYC flow
+(OFAC, 18+) scanned from a passport in the Self app. Results land in
+`identity_verifications` and show as a badge. **No payment path reads it** —
+this was a deliberate choice (2026-09-19), not an omission. Making it a gate
+means a check in `execute-due-runs`, since the hot key is the only thing that
+triggers runs.
+
+- Hand-rolled client in `_shared/self.ts`, not `@selfxyz/enterprise-sdk`: the
+  SDK is Node-only and loads `@selfxyz/core` at import for a verifier we never
+  call.
+- `self-verify` polls Self's session API for status; the webhook is not
+  load-bearing for that. It **is** the only source of the nullifier, so without
+  `SELF_WEBHOOK_SECRET` one passport can verify any number of senders.
+- Self webhooks retry (Svix), unlike cNGN's. So `self-webhook` does its work
+  before answering and returns 500 to get a redelivery.
+- It proves a human, not wallet ownership. MiniPay still cannot sign.
+- A `sk_test_` key verifies the Self app's mock passports; the badge says so.
+- **MiniPay cannot open the Self app** (tested on iOS, 2026-09-19). Self's
+  handoff switches to `proofofpassport://…` and falls back to the App Store
+  after 1s; MiniPay's webview blocks the switch, so the request is lost and
+  Self opens with nothing to approve (its "Deferred linking" screen).
+  `window.open` does not get past it either. What works: copy the link, open
+  it in Chrome or Safari, approve, return to MiniPay. `IdentityCard` does
+  exactly that inside MiniPay. Do not "fix" it back to a direct button.
+- Self's redirect after approval lands in the browser, not MiniPay — that is
+  what `/verified` is for. Landing back inside MiniPay would need MiniPay's
+  `link.minipay.xyz/browse` deeplink, which MiniPay provisions on request.
+- First real verification: 2026-09-19, live key, Nigerian passport. Only
+  `ofac`, `minimumAge`, `excludedCountries` were disclosed — no PII.
 
 ## Invariants — do not break
 

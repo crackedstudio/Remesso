@@ -33,3 +33,13 @@ verify_jwt = true
 # function re-checks the user itself; this is the outer gate.
 [functions.cngn-proxy]
 verify_jwt = true
+
+# Same arrangement as cngn-proxy: route handler -> this, with the sender's JWT.
+[functions.self-verify]
+verify_jwt = true
+
+# Same reason as cngn-webhook: Self signs deliveries through Svix (svix-id,
+# svix-timestamp, svix-signature) and has no Supabase JWT to send. The handler
+# verifies the signature over the raw body and answers 401 on a mismatch.
+[functions.self-webhook]
+verify_jwt = false
