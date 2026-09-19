@@ -246,15 +246,21 @@ home, / on a schedule."), one paragraph, three hairline-separated benefit
 lines, one full-width primary button. No cards.
 
 ### Home (connected)
-1. **Available** eyebrow + balance (24px, unit beside). Inside MiniPay an
-   "Add money" soft button on the right (deposit deeplink).
-2. A one-line disclosure: "Remesso can move up to **X USDT** in total" — the
-   allowance is the sender's kill switch, explained on expand only.
-3. **Schedules** H1 with an "N active" count. List of cards (name, pill,
+1. **Total balance** eyebrow + the sum of USDT, USDC and cUSD in dollars
+   (36px display, `$` set smaller in `ink-3`; the three are dollar
+   stablecoins, summed 1:1). Inside MiniPay an "Add money" soft button on
+   the right (deposit deeplink).
+2. An asset switcher: three equal tiles (symbol in 12px, balance in 15px),
+   the selected one in the accent tile-on state. Switching never changes
+   the total — only which per-asset figure and allowance are shown.
+3. A one-line disclosure: "Remesso can move up to **X USDT** in total" for
+   the selected asset — the allowance is the sender's kill switch and is
+   per-asset on-chain, explained on expand only.
+4. **Schedules** H1 with an "N active" count. List of cards (name, pill,
    amount · cadence, then "Next in 6 days" for active or the recipient label
    otherwise). Skeletons while loading; a dashed-border empty state that
    teaches the three steps.
-4. Action bar: "New schedule" / "Set up your first schedule".
+5. Action bar: "New schedule" / "Set up your first schedule".
 
 ### New schedule (3 steps: Who → How much → Review)
 - Progress segments + "Step n of 3 · name". Step content re-enters with `rise`
