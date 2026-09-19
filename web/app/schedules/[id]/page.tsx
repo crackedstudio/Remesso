@@ -31,7 +31,10 @@ export default function ScheduleDetailPage() {
   const queryClient = useQueryClient();
   const { writeContractAsync } = useWriteContract();
 
-  const { data: schedule, isLoading } = useSchedule(id);
+  // `isPending`, not `isLoading`: the latter drops to false between retry
+  // attempts, and this page would then say the schedule does not exist while
+  // the fetch was still in flight.
+  const { data: schedule, isPending, error: loadError, refetch } = useSchedule(id);
   const { data: runs } = useRuns(id);
   const { data: runnability } = useRunnability(schedule?.onchain_id ?? null);
 
@@ -39,7 +42,20 @@ export default function ScheduleDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
 
-  if (isLoading) return <DetailSkeleton />;
+  if (isPending) return <DetailSkeleton />;
+  // A failed fetch and a missing row are different answers. Telling someone
+  // their schedule "doesn't exist" because the network dropped is the kind of
+  // message that makes them think their money is gone.
+  if (loadError) {
+    return (
+      <div className="notice-danger mt-2 flex items-center justify-between gap-3">
+        <span>Couldn&rsquo;t load this schedule. Check your connection.</span>
+        <button className="btn-ink btn-sm shrink-0" onClick={() => refetch()}>
+          Retry
+        </button>
+      </div>
+    );
+  }
   if (!schedule) return <div className="notice-info mt-2">This schedule doesn&rsquo;t exist.</div>;
 
   const recipient = one(schedule.recipients);
@@ -164,7 +180,8 @@ export default function ScheduleDetailPage() {
           <ul className="space-y-2.5">
             <Check
               ok={runnability.funded}
-              label={`Wallet holds enough ${token.symbol}`}
+              label={`Enough ${token.symbol} in your wallet`}
+              failLabel={`Not enough ${token.symbol} in your wallet`}
               fix={
                 inMiniPay ? (
                   <a href={MINIPAY_DEPOSIT_URL} className="font-medium text-clay-deep underline underline-offset-2">
@@ -178,11 +195,13 @@ export default function ScheduleDetailPage() {
             <Check
               ok={runnability.approved}
               label="Approval covers the next run"
+              failLabel="Approval no longer covers a run"
               fix={`Re-approve ${token.symbol} in your wallet to resume.`}
             />
             <Check
               ok={runnability.due || schedule.status !== "active"}
-              label="Due to run"
+              label="Due now"
+              failLabel="Not due yet"
               fix={`Next attempt ${relativeTime(Number(runnability.nextRunAt))}.`}
               neutral
             />
@@ -332,7 +351,9 @@ function RunRow({
           </p>
         )}
 
-        {run.failure_reason && <WhatHappened reason={run.failure_reason} />}
+        {run.failure_reason && (
+          <WhatHappened reason={run.failure_reason} skipped={run.status === "skipped"} />
+        )}
 
         {(run.tx_hash || run.cngn_trx_ref) && (
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
@@ -354,14 +375,18 @@ function RunRow({
   );
 }
 
+/// One readiness line. A failing check names the problem rather than showing
+/// a red mark beside a sentence that says the opposite.
 function Check({
   ok,
   label,
+  failLabel,
   fix,
   neutral,
 }: {
   ok: boolean;
   label: string;
+  failLabel: string;
   fix: React.ReactNode;
   neutral?: boolean;
 }) {
@@ -376,7 +401,7 @@ function Check({
         {ok ? "✓" : neutral ? "" : "!"}
       </span>
       <span className="text-[15px] text-ink">
-        {label}
+        {ok ? label : failLabel}
         {!ok && <span className="block text-[13px] text-ink-2">{fix}</span>}
       </span>
     </li>
@@ -389,7 +414,7 @@ function Check({
 /// happened, and it is what someone will quote when asking for help. The
 /// assistant's version sits above it as a reading aid; if the call fails or
 /// is not configured only the raw reason shows, and nothing is lost.
-function WhatHappened({ reason }: { reason: string }) {
+function WhatHappened({ reason, skipped }: { reason: string; skipped: boolean }) {
   const { data } = useQuery({
     queryKey: ["explain", reason],
     queryFn: () => explainRun(reason),
@@ -401,14 +426,18 @@ function WhatHappened({ reason }: { reason: string }) {
   });
 
   return (
-    <div className="notice-danger mt-2">
+    // A skip is the contract doing its job — the floor held, or the wallet was
+    // short — so it is drawn as a caution, not a failure.
+    <div className={`${skipped ? "notice-warn" : "notice-danger"} mt-2`}>
       {data && (
         <p className="text-ink">
           <span className="font-medium">{data.title}.</span> {data.detail}
           {data.action && <span className="font-medium"> {data.action}.</span>}
         </p>
       )}
-      <p className={`mono ${data ? "mt-1.5 border-t border-danger/15 pt-1.5 text-[12px] text-danger/80" : ""}`}>{reason}</p>
+      <p className={`mono ${data ? "mt-1.5 border-t border-ink/10 pt-1.5 text-[12px] opacity-80" : ""}`}>
+        {reason}
+      </p>
     </div>
   );
 }

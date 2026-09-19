@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAccount, useWriteContract } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
@@ -92,6 +92,13 @@ export default function NewSchedulePage() {
             : null
         : null;
   const canContinue = blocker === null;
+
+  // The phase list and any error render at the foot of the page, under the
+  // action bar on a short screen. Bring them into view so a wallet prompt or
+  // a rejection is never something the sender has to scroll to discover.
+  useEffect(() => {
+    if (busy || error) window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  }, [busy, error]);
 
   if (!isConfigured()) {
     return <div className="notice-warn mt-2">The executor contract address is not configured.</div>;

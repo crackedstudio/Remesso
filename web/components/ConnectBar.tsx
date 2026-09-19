@@ -5,7 +5,7 @@ import { activeChain } from "@/lib/wagmi";
 import { useIsMiniPay } from "@/lib/hooks";
 import { addressName } from "@/lib/identity";
 
-export function ConnectBar() {
+export function ConnectBar({ compact = false }: { compact?: boolean }) {
   const { address, isConnected } = useAccount();
   const { connect, connectors, isPending } = useConnect();
   const { disconnect } = useDisconnect();
@@ -59,12 +59,12 @@ export function ConnectBar() {
       {/* MiniPay prohibits showing the wallet address anywhere — a truncated
           0x1234…abcd is explicitly not an escape hatch. A stable generated name
           identifies the session without putting hex on screen. */}
-      <span className="flex items-center gap-2 rounded-full border border-line bg-surface py-1.5 pl-2.5 pr-3 text-[13px] font-medium text-ink">
-        <Dot className="bg-naira" />
-        {addressName(address)}
+      <span className="flex max-w-[11rem] items-center gap-2 rounded-full border border-line bg-surface py-1.5 pl-2.5 pr-3 text-[13px] font-medium text-ink">
+        <Dot className="shrink-0 bg-naira" />
+        <span className="truncate">{addressName(address)}</span>
       </span>
       {/* MiniPay owns the session; disconnecting inside it just strands the app. */}
-      {!inMiniPay && (
+      {!inMiniPay && !compact && (
         <button
           className="min-h-11 px-1 text-[13px] text-ink-3 transition hover:text-ink"
           onClick={() => disconnect()}

@@ -120,11 +120,10 @@ export function RecipientStep({
             a different wallet.
           </p>
         )}
-        {!BANK_PAYOUTS_ENABLED && (
-          <p className="hint">
-            Bank payouts are off until cNGN confirms the payout address is stable. We
-            won&rsquo;t let you sign for an address that might later stop being right.
-          </p>
+        {/* The reason is in the README; the sender only needs to know it is
+            not them. */}
+        {!BANK_PAYOUTS_ENABLED && value.payoutType !== "wallet" && (
+          <p className="hint">Paying straight into a bank account is coming soon.</p>
         )}
       </div>
 
@@ -313,7 +312,7 @@ function Choice({
       disabled={disabled}
       onClick={onClick}
       aria-pressed={active}
-      className={`tile ${active ? "tile-on" : ""}`}
+      className={`tile h-full ${active ? "tile-on" : ""}`}
     >
       <span className="block text-[15px] font-medium text-ink">{title}</span>
       <span className={`mt-0.5 block text-[12px] leading-snug ${active ? "text-clay-deep" : "text-ink-3"}`}>

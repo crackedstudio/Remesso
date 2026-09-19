@@ -20,7 +20,7 @@ export function AppHeader() {
 
   return (
     <header className="sticky top-0 z-20 bg-paper/85 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-md">
-      <div className="flex h-10 items-center justify-between gap-3">
+      <div className="flex h-10 items-center justify-between gap-3 whitespace-nowrap">
         {title ? (
           <button
             type="button"
@@ -36,7 +36,9 @@ export function AppHeader() {
             Remesso
           </Link>
         )}
-        <ConnectBar />
+        {/* Sub-pages get the compact form: the name only. "Sign out" is a
+            home-screen action, and at 360px the three do not fit on one line. */}
+        <ConnectBar compact={Boolean(title)} />
       </div>
     </header>
   );

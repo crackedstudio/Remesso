@@ -12,7 +12,7 @@ import { one, type Schedule } from "@/lib/types";
 
 export default function SchedulesPage() {
   const { isConnected } = useAccount();
-  const { data: schedules, isLoading, error } = useSchedules();
+  const { data: schedules, isPending, error } = useSchedules();
   const { data: allowance } = useAllowance();
   const { data: balance } = useUsdtBalance();
   const inMiniPay = useIsMiniPay();
@@ -91,7 +91,7 @@ export default function SchedulesPage() {
           </div>
         )}
 
-        {isLoading ? (
+        {isPending && !error ? (
           <ul className="space-y-3">
             {[0, 1].map((i) => (
               <li key={i} className="card flex items-center gap-4">

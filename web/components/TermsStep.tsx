@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useMarketRate } from "@/lib/hooks";
 import {
   INTERVALS,
@@ -50,6 +51,7 @@ export function amountInUnits(t: TermsDraft, decimals: number): bigint | null {
 /// Amounts a sender can tap instead of type. Small on purpose: this audience
 /// sends tens of dollars, not hundreds, and the field is right there.
 const QUICK_AMOUNTS = ["10", "20", "50", "100"];
+const QUICK_COUNTS = ["6", "12", ""];
 
 export function TermsStep({
   value,
@@ -66,6 +68,9 @@ export function TermsStep({
 }) {
   const set = (patch: Partial<TermsDraft>) => onChange({ ...value, ...patch });
   const amount = amountInUnits(value, token.decimals);
+  // Whether the count is being typed rather than tapped. Without this, typing
+  // "6" on the way to "60" would light the 6 chip and empty the field.
+  const [customCount, setCustomCount] = useState(!QUICK_COUNTS.includes(value.maxRuns));
   const market = useMarketRate(converts ? (amount ?? 0n) : 0n);
 
   const floorE6 = market.rateE6
@@ -174,22 +179,31 @@ export function TermsStep({
       <div>
         <p className="label">How many transfers</p>
         <div className="flex flex-wrap gap-2">
-          {["6", "12", ""].map((n) => (
+          {QUICK_COUNTS.map((n) => (
             <button
               key={n || "open"}
               type="button"
-              className={`chip ${value.maxRuns === n ? "border-clay bg-clay-soft text-clay-deep" : ""}`}
-              onClick={() => set({ maxRuns: n })}
+              className={`chip ${!customCount && value.maxRuns === n ? "border-clay bg-clay-soft text-clay-deep" : ""}`}
+              onClick={() => {
+                setCustomCount(false);
+                set({ maxRuns: n });
+              }}
             >
               {n || "Until I stop it"}
             </button>
           ))}
           <input
-            className="field min-h-9 w-24 rounded-full px-3.5 py-0 text-[13px]"
+            className={`field min-h-9 w-24 rounded-full px-3.5 py-0 text-[13px] ${
+              customCount ? "border-clay bg-clay-soft text-clay-deep" : ""
+            }`}
             inputMode="numeric"
             placeholder="Other"
             aria-label="Number of transfers"
-            value={value.maxRuns}
+            value={customCount ? value.maxRuns : ""}
+            onFocus={() => {
+              setCustomCount(true);
+              set({ maxRuns: "" });
+            }}
             onChange={(e) => set({ maxRuns: e.target.value.replace(/\D/g, "") })}
           />
         </div>
@@ -242,7 +256,7 @@ function Switch({ checked, onChange }: { checked: boolean; onChange: (v: boolean
       }`}
     >
       <span
-        className={`absolute top-0.5 h-6 w-6 rounded-full bg-surface shadow-card transition-transform duration-200 ease-out ${
+        className={`absolute left-0 top-0.5 h-6 w-6 rounded-full bg-surface shadow-card transition-transform duration-200 ease-out ${
           checked ? "translate-x-[22px]" : "translate-x-0.5"
         }`}
       />

@@ -104,7 +104,7 @@ export function DescribeSchedule({
             <button
               key={example}
               type="button"
-              className="chip"
+              className="chip h-auto py-1.5 text-left leading-snug"
               onClick={() => setText(example)}
             >
               {example}
