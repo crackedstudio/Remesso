@@ -4,26 +4,27 @@
 
 /* Palette as OKLCH channels; tailwind.config.ts wraps them in oklch() so
    opacity modifiers keep working. Every neutral is tinted a few degrees toward
-   the clay hue — it is what makes the cream and the ink read as one material
-   rather than a white page with a brown button on it. */
+   the teal hue — it is what makes the off-white and the ink read as one
+   material rather than a white page with a teal button on it. The token
+   names are roles, not hues: "clay" is simply the accent. */
 :root {
   color-scheme: light;
 
-  --paper: 0.975 0.009 78;
-  --surface: 0.995 0.004 85;
-  --sand: 0.951 0.013 76;
-  --line: 0.885 0.013 70;
+  --paper: 0.976 0.006 195;
+  --surface: 0.995 0.003 195;
+  --sand: 0.952 0.011 195;
+  --line: 0.885 0.014 195;
 
-  --ink: 0.235 0.022 48;
-  --ink-2: 0.46 0.022 50;
-  --ink-3: 0.62 0.018 55;
+  --ink: 0.235 0.025 215;
+  --ink-2: 0.46 0.025 215;
+  --ink-3: 0.62 0.02 210;
 
-  --clay: 0.6 0.148 40;
-  --clay-deep: 0.52 0.15 38;
-  --clay-soft: 0.955 0.028 48;
+  --clay: 0.56 0.105 195;
+  --clay-deep: 0.47 0.105 198;
+  --clay-soft: 0.955 0.03 195;
 
-  --naira: 0.55 0.13 158;
-  --naira-soft: 0.955 0.04 158;
+  --naira: 0.55 0.13 150;
+  --naira-soft: 0.955 0.04 150;
 
   --amber: 0.72 0.14 72;
   --amber-soft: 0.965 0.045 82;
