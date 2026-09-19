@@ -1,20 +1,24 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useAccount, useConnect } from "wagmi";
-import { useAllowance, useIsMiniPay, useSchedules, useUsdtBalance } from "@/lib/hooks";
+import { useAllowance, useBalances, useIsMiniPay, useSchedules } from "@/lib/hooks";
 import { recipientLabel } from "@/lib/identity";
 import { formatUnits, intervalLabel, relativeTime } from "@/lib/format";
 import { SchedulePill } from "@/components/StatusPill";
 import { ActionBar, Amount, MINIPAY_DEPOSIT_URL, Skeleton } from "@/components/ui";
-import { isConfigured, tokenFor, USDT } from "@/lib/config";
+import { isConfigured, tokenFor, USDT, type TokenInfo } from "@/lib/config";
 import { one, type Schedule } from "@/lib/types";
 
 export default function SchedulesPage() {
   const { isConnected } = useAccount();
   const { data: schedules, isPending, error } = useSchedules();
-  const { data: allowance } = useAllowance();
-  const { data: balance } = useUsdtBalance();
+  // Which asset the balance strip is showing. The total is always the sum;
+  // the switcher only changes which per-asset figure and allowance appear.
+  const [token, setToken] = useState<TokenInfo>(USDT);
+  const { balances, totalUsd6 } = useBalances();
+  const { data: allowance } = useAllowance(token.address);
   const inMiniPay = useIsMiniPay();
 
   if (!isConfigured()) {
@@ -35,31 +39,65 @@ export default function SchedulesPage() {
 
   return (
     <div className="pb-bar">
-      <section className="mt-2 flex items-end justify-between gap-4">
-        <div>
-          <p className="eyebrow">Available</p>
-          {balance === undefined ? (
-            <Skeleton className="mt-1.5 h-8 w-32" />
-          ) : (
-            <Amount value={formatUnits(balance, USDT.decimals)} unit="USDT" size="lg" />
+      <section className="mt-2">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <p className="eyebrow">Total balance</p>
+            {totalUsd6 === undefined ? (
+              <Skeleton className="mt-1.5 h-9 w-36" />
+            ) : (
+              <p className="font-display text-[36px] leading-none text-ink">
+                <span className="mr-0.5 text-[22px] text-ink-3">$</span>
+                {formatUnits(totalUsd6, 6)}
+              </p>
+            )}
+          </div>
+          {inMiniPay && (
+            <a href={MINIPAY_DEPOSIT_URL} className="btn-soft btn-sm">
+              Add money
+            </a>
           )}
         </div>
-        {inMiniPay && (
-          <a href={MINIPAY_DEPOSIT_URL} className="btn-soft btn-sm">
-            Add money
-          </a>
-        )}
+
+        {/* One row per asset the sender can fund with. Tapping one changes
+            which allowance is quoted below; the total above never changes. */}
+        <div className="mt-4 flex gap-2" role="tablist" aria-label="Asset">
+          {balances.map(({ token: t, balance }) => {
+            const on = t.symbol === token.symbol;
+            return (
+              <button
+                key={t.symbol}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => setToken(t)}
+                className={`tile min-h-0 flex-1 px-3 py-2.5 ${on ? "tile-on" : ""}`}
+              >
+                <span className={`block text-[12px] font-medium ${on ? "text-clay-deep" : "text-ink-3"}`}>
+                  {t.symbol}
+                </span>
+                {balance === undefined ? (
+                  <Skeleton className="mt-1 h-4 w-12" />
+                ) : (
+                  <span className="block text-[15px] font-medium text-ink">
+                    {formatUnits(balance, t.decimals)}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       {/* The allowance is the sender's kill switch, so it is stated as one —
           but under a disclosure, because a returning sender came to check on
           a payment, not to re-read the security model. */}
-      <details className="group mt-4 rounded-xl bg-sand/70">
+      <details className="group mt-3 rounded-xl bg-sand/70">
         <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-4 text-[13px] text-ink-2 [&::-webkit-details-marker]:hidden">
           <span>
             Remesso can move up to{" "}
             <span className="font-medium text-ink">
-              {allowance !== undefined ? formatUnits(allowance, USDT.decimals) : "—"} USDT
+              {allowance !== undefined ? formatUnits(allowance, token.decimals) : "—"} {token.symbol}
             </span>{" "}
             in total
           </span>
@@ -68,9 +106,9 @@ export default function SchedulesPage() {
           </span>
         </summary>
         <p className="px-4 pb-3 text-[13px] leading-relaxed text-ink-2">
-          That is the hard ceiling on everything Remesso can ever move, across all your
-          schedules. Revoke it in your wallet and every schedule stops at once — no need to
-          tell us.
+          That is the hard ceiling on the {token.symbol} Remesso can ever move, across all
+          your schedules funded in it. Revoke it in your wallet and every one of them stops
+          at once — no need to tell us.
         </p>
       </details>
 

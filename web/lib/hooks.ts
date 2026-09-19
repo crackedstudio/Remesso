@@ -2,11 +2,20 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useAccount, useReadContract, useSimulateContract } from "wagmi";
+import { useAccount, useReadContract, useReadContracts, useSimulateContract } from "wagmi";
 import { isMiniPay } from "./wagmi";
 import { supabase } from "./supabase";
 import { executorAbi, erc20Abi, quoterAbi } from "./abi";
-import { CNGN, EXECUTOR_ADDRESS, POOL_FEE, QUOTER, USDT, isConfigured } from "./config";
+import {
+  CNGN,
+  DIRECT_TOKENS,
+  EXECUTOR_ADDRESS,
+  POOL_FEE,
+  QUOTER,
+  USDT,
+  isConfigured,
+  type TokenInfo,
+} from "./config";
 import type { Numeric, Run, Schedule } from "./types";
 
 /// The `senders` row for the connected wallet. Everything else keys off it, so
@@ -134,6 +143,39 @@ export function useUsdtBalance(token: `0x${string}` = USDT.address) {
     args: address ? [address] : undefined,
     query: { enabled: Boolean(address), refetchInterval: 20_000 },
   });
+}
+
+/// Every asset the sender can fund a schedule with, in one read.
+///
+/// The three are all dollar stablecoins, so the total is their sum at 1:1 —
+/// close enough for a balance line, and honest as long as it is labelled
+/// "USD" rather than pretending to quote a market. `totalUsd6` is at 6dp so
+/// cUSD's 18dp does not have to be carried through the display path.
+export function useBalances() {
+  const { address } = useAccount();
+  const reads = useReadContracts({
+    contracts: DIRECT_TOKENS.map((t) => ({
+      address: t.address,
+      abi: erc20Abi,
+      functionName: "balanceOf" as const,
+      args: address ? [address] : undefined,
+    })),
+    query: { enabled: Boolean(address), refetchInterval: 20_000 },
+  });
+
+  const balances: Array<{ token: TokenInfo; balance?: bigint }> = DIRECT_TOKENS.map((token, i) => {
+    const r = reads.data?.[i];
+    return { token, balance: r?.status === "success" ? (r.result as bigint) : undefined };
+  });
+  const loaded = balances.filter((b) => b.balance !== undefined);
+  const totalUsd6 = loaded.length
+    ? loaded.reduce(
+        (acc, b) => acc + (b.balance! * 1_000_000n) / 10n ** BigInt(b.token.decimals),
+        0n,
+      )
+    : undefined;
+
+  return { balances, totalUsd6, isPending: reads.isPending };
 }
 
 /// A live USDT -> cNGN rate from the one pool that exists on Celo.
