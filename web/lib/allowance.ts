@@ -41,3 +41,24 @@ export function runsToCover(s: {
   }
   return Math.max(1, Math.min(...limits));
 }
+
+/// How many transfers can actually happen before a schedule expires.
+///
+/// The contract caps a schedule's life at 365 days but never checks the
+/// transfer count against the expiry, so "8 quarterly transfers, expires in
+/// 330 days" is accepted and then silently makes three. The sender finds out
+/// by the schedule ending with most of its transfers unmade.
+export function transfersBeforeExpiry(s: {
+  intervalSeconds: number;
+  expiresAtMs: number | null;
+  startNow: boolean;
+  fromMs?: number;
+}): number | null {
+  if (!s.expiresAtMs) return null;
+  const interval = Math.max(1, s.intervalSeconds);
+  const seconds = (s.expiresAtMs - (s.fromMs ?? Date.now())) / 1000;
+  if (seconds <= 0) return 0;
+  // A schedule that starts now gets one transfer on the spot; one that waits
+  // gets its first only after a full interval has passed.
+  return Math.floor(seconds / interval) + (s.startNow ? 1 : 0);
+}
