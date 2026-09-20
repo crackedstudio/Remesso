@@ -152,25 +152,42 @@ export default function SchedulesPage() {
 ///   covered  the ceiling, under a disclosure: a returning sender came to
 ///            check on a payment, not to re-read the security model
 function ApprovalStrip({ token }: { token: TokenInfo }) {
-  const { allowance, active, stuck } = useApprovalCover(token);
+  const { allowance, active, covers, stuck, low } = useApprovalCover(token);
+  const n = active.length;
+  const subject = n === 1 ? "Your schedule" : `${n} schedules`;
 
   if (stuck) {
-    const n = active.length;
     return (
       <div className="notice-warn mt-3">
         <p className="font-medium">
-          {n === 1 ? "Your schedule" : `${n} schedules`} paid in {token.symbol} can&rsquo;t run
+          {subject} paid in {token.symbol} can&rsquo;t run
         </p>
         <p className="mt-0.5">
-          Remesso&rsquo;s approval to move your {token.symbol} is used up, so the next
-          payment will be skipped. Approve again to keep {n === 1 ? "it" : "them"} going.
+          Remesso can&rsquo;t send any more of your {token.symbol}, so the next payment
+          will be skipped. Allow it again to keep {n === 1 ? "it" : "them"} going.
         </p>
-        <ReapproveButton token={token} />
+        <ReapproveButton token={token} label="Allow payments again" />
       </div>
     );
   }
 
-  if (allowance === 0n && !active.length) {
+  // Said with transfers left rather than after the first one is missed.
+  if (low) {
+    return (
+      <div className="notice-info mt-3">
+        <p className="font-medium text-ink">
+          {covers === 1 ? "One more payment" : `${covers} more payments`} covered
+        </p>
+        <p className="mt-0.5">
+          After that, Remesso can&rsquo;t send any more of your {token.symbol} until you
+          allow it. Doing it now means nothing is missed.
+        </p>
+        <ReapproveButton token={token} label="Allow more payments" />
+      </div>
+    );
+  }
+
+  if (allowance === 0n && !n) {
     return (
       <p className="mt-3 flex min-h-11 items-center rounded-xl bg-sand/70 px-4 text-[13px] text-ink-2">
         No schedules are paid in {token.symbol}.
@@ -194,8 +211,9 @@ function ApprovalStrip({ token }: { token: TokenInfo }) {
       </summary>
       <p className="px-4 pb-3 text-[13px] leading-relaxed text-ink-2">
         That is the most Remesso can ever take from your {token.symbol}, across every
-        schedule paid in it — the contract enforces the limit, not us. To stop a payment,
-        pause or cancel its schedule.
+        schedule paid in it — the contract enforces the limit, not us.
+        {covers !== undefined && n > 0 && ` Enough for ${covers} more ${covers === 1 ? "payment" : "payments"}.`}{" "}
+        To stop a payment, pause or cancel its schedule.
       </p>
     </details>
   );

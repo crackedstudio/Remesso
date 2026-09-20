@@ -10,6 +10,7 @@ import {
   rateToNairaPerUsd,
 } from "@/lib/format";
 import { CNGN, type TokenInfo } from "@/lib/config";
+import { transfersBeforeExpiry } from "@/lib/allowance";
 
 export type TermsDraft = {
   amount: string;          // decimal USDT as typed
@@ -207,6 +208,7 @@ export function TermsStep({
             onChange={(e) => set({ maxRuns: e.target.value.replace(/\D/g, "") })}
           />
         </div>
+        <CountVsExpiry value={value} set={set} />
       </div>
 
       <div>
@@ -261,5 +263,52 @@ function Switch({ checked, onChange }: { checked: boolean; onChange: (v: boolean
         }`}
       />
     </button>
+  );
+}
+
+/// The transfer count and the expiry date are separate answers that can
+/// contradict each other, and the contract enforces both — it stops at
+/// whichever comes first. Choosing fewer transfers than fit is a real choice
+/// and stays silent; choosing more than can happen is not, so it is said here
+/// rather than discovered when the payments stop.
+function CountVsExpiry({
+  value,
+  set,
+}: {
+  value: TermsDraft;
+  set: (patch: Partial<TermsDraft>) => void;
+}) {
+  const wanted = Number(value.maxRuns);
+  if (!wanted) return null;
+
+  const fits = transfersBeforeExpiry({
+    intervalSeconds: value.intervalSeconds,
+    expiresAtMs: value.expiresAt ? Date.parse(`${value.expiresAt}T23:59:59`) : null,
+    startNow: value.startNow,
+  });
+  if (fits === null || wanted <= fits) return null;
+
+  const expiry = new Date(`${value.expiresAt}T12:00:00`).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+  return (
+    <div className="notice-warn mt-3">
+      {fits === 0
+        ? `None of these fit before ${expiry}.`
+        : `Only ${fits} of these fit before ${expiry} — the rest would never be sent.`}{" "}
+      A schedule can last a year at most, so move the date out or send fewer.
+      {fits > 0 && (
+        <button
+          type="button"
+          className="btn-soft btn-sm mt-2 block bg-surface"
+          onClick={() => set({ maxRuns: String(fits) })}
+        >
+          Send {fits} instead
+        </button>
+      )}
+    </div>
   );
 }

@@ -195,12 +195,12 @@ export default function ScheduleDetailPage() {
             />
             <Check
               ok={runnability.approved}
-              label="Approval covers the next run"
-              failLabel="Approval no longer covers a run"
+              label="Allowed to send the next one"
+              failLabel="Not allowed to send any more"
               fix={
                 <>
-                  Remesso&rsquo;s approval to move your {token.symbol} is used up.
-                  <ReapproveButton token={token} />
+                  Remesso can&rsquo;t send any more of your {token.symbol}.
+                  <ReapproveButton token={token} label="Allow payments again" />
                 </>
               }
             />

@@ -8,13 +8,10 @@ import { waitForTransactionReceipt } from "wagmi/actions";
 import { erc20Abi } from "@/lib/abi";
 import { EXECUTOR_ADDRESS, tokenFor, type TokenInfo } from "@/lib/config";
 import { formatUnits } from "@/lib/format";
+import { runsToCover } from "@/lib/allowance";
 import { useAllowance, useSchedules } from "@/lib/hooks";
 import { txOverrides } from "@/lib/tx";
 import { wagmiConfig } from "@/lib/wagmi";
-
-/// Runs one approval covers. Same default as creating a schedule: long enough
-/// not to nag, short enough that a forgotten schedule cannot drain a wallet.
-const RUNS_PER_APPROVAL = 12n;
 
 /// Where the sender's approval stands for one funding asset, measured against
 /// the active schedules that draw on it.
@@ -30,13 +27,44 @@ export function useApprovalCover(token: TokenInfo) {
     (s) => s.status === "active" && tokenFor(s.token_address).symbol === token.symbol,
   );
   const amounts = active.map((s) => BigInt(s.amount_in));
-  const smallest = amounts.length ? amounts.reduce((a, b) => (b < a ? b : a)) : undefined;
-  const stuck = allowance !== undefined && smallest !== undefined && allowance < smallest;
-  // Added to what is there, never replacing it: `approve` sets the allowance
-  // outright, so approving one schedule's need alone would erase the headroom
-  // every other schedule on this asset was counting on.
-  const topUp = amounts.reduce((a, b) => a + b, 0n) * RUNS_PER_APPROVAL;
-  return { allowance, active, stuck, target: (allowance ?? 0n) + topUp, topUp };
+  const largest = amounts.length ? amounts.reduce((a, b) => (b > a ? b : a)) : undefined;
+
+  // Transfers the current allowance still covers, measured against the
+  // hungriest schedule — the first one that will be skipped.
+  const covers = allowance !== undefined && largest !== undefined && largest > 0n
+    ? Number(allowance / largest)
+    : undefined;
+
+  // Each schedule's remaining life, so one approval lasts it out rather than
+  // coming back every few runs. Added to what is already approved, never
+  // replacing it: `approve` sets the allowance outright, so approving one
+  // schedule's need alone would erase the headroom every other schedule on
+  // this asset was counting on.
+  const topUp = active.reduce(
+    (sum, s) =>
+      sum +
+      BigInt(s.amount_in) *
+        BigInt(
+          runsToCover({
+            intervalSeconds: s.interval_seconds,
+            maxRuns: s.max_runs,
+            expiresAtMs: s.expires_at ? Date.parse(s.expires_at) : null,
+          }),
+        ),
+    0n,
+  );
+
+  return {
+    allowance,
+    active,
+    covers,
+    stuck: covers === 0,
+    /// Fewer than two transfers left: say so before a payment is missed,
+    /// not after.
+    low: covers !== undefined && covers > 0 && covers < 2,
+    target: (allowance ?? 0n) + topUp,
+    topUp,
+  };
 }
 
 /// Approve again from inside Remesso.
@@ -45,8 +73,8 @@ export function useApprovalCover(token: TokenInfo) {
 /// there is no approvals screen in MiniPay to send them to, and no other place
 /// that calls `approve` for them. So the way back for a stuck schedule has to
 /// be here.
-export function ReapproveButton({ token }: { token: TokenInfo }) {
-  const { target, topUp } = useApprovalCover(token);
+export function ReapproveButton({ token, label = "Allow payments" }: { token: TokenInfo; label?: string }) {
+  const { target, topUp, active } = useApprovalCover(token);
   const { refetch } = useAllowance(token.address);
   const qc = useQueryClient();
   const { writeContractAsync } = useWriteContract();
@@ -101,10 +129,12 @@ export function ReapproveButton({ token }: { token: TokenInfo }) {
         disabled={state === "pending"}
         onClick={approve}
       >
-        {state === "pending" ? "Approving…" : state === "done" ? "Approved" : "Approve again"}
+        {state === "pending" ? "Confirming…" : state === "done" ? "Done" : label}
       </button>
       <p className="mt-2 text-[12px] text-ink-2">
-        Adds {formatUnits(topUp, token.decimals)} {token.symbol} — a year of these payments.
+        Covers {formatUnits(topUp, token.decimals)} {token.symbol} more — the rest of
+        {active.length === 1 ? " this schedule" : " these schedules"}. Your wallet asks you
+        to confirm.
       </p>
       {error && <p className="mt-1 text-[13px] text-danger">{error}</p>}
     </div>
