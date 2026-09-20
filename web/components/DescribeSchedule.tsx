@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { parseSchedule, type Draft } from "@/lib/ai";
-import { DIRECT_TOKENS } from "@/lib/config";
+import { CNGN_RAILS_ENABLED, DIRECT_TOKENS } from "@/lib/config";
 import { TEST_INTERVALS_ENABLED } from "@/lib/format";
 
 /// Type the remittance in a sentence; the assistant fills the form in.
@@ -83,6 +83,10 @@ export function DescribeSchedule({
     }
   }
 
+  const visibleUnsure = CNGN_RAILS_ENABLED
+    ? unsure
+    : unsure.filter((u) => u !== "payout to a bank account");
+
   return (
     <div className="mb-7 rounded-2xl bg-sand/70 p-4">
       <label className="label" htmlFor="describe">
@@ -130,10 +134,21 @@ export function DescribeSchedule({
       {/* Read one way by the parser, plausibly another way by a reader. Saying
           so is the point: the form below is already filled in, and a sender
           who skims it will sign whatever was guessed. */}
-      {unsure.length > 0 && (
+      {/* Asked for a bank payout while the naira rails are off. Saying "check
+          this" would send them looking for an option that is not there. */}
+      {!CNGN_RAILS_ENABLED && unsure.includes("payout to a bank account") && (
+        <div className="notice-info mt-3 animate-rise">
+          <p>
+            Paying into a naira bank account isn&rsquo;t available yet. This will go to
+            their wallet as a stablecoin instead.
+          </p>
+        </div>
+      )}
+
+      {visibleUnsure.length > 0 && (
         <div className="notice-warn mt-3 animate-rise">
           <p>
-            Worth checking before you sign: {unsure.join(", ")}. The form below has what
+            Worth checking before you sign: {visibleUnsure.join(", ")}. The form below has what
             we read — change anything that isn&rsquo;t right.
           </p>
         </div>

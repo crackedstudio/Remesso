@@ -126,6 +126,14 @@ in cNGN sees nothing and cannot add a custom token.
 The swap rails (`Wallet`, `BankRedemption`) still convert to cNGN and remain the
 path for bank payouts, where no wallet is involved.
 
+**Both are hidden in the UI as of 2026-09-20** — `NEXT_PUBLIC_ENABLE_CNGN_RAILS`
+is not `"1"`, so a sender can only authorise a stablecoin payout. Naira is what
+carries the open regulatory question and the unverified cNGN account; without it
+the product needs no payout partner and no money-transmission answer. Nothing is
+deleted: the contract has all three rails, `execute-due-runs` still runs them,
+and existing schedules of any kind still render. Set the flag to `"1"` (plus
+`NEXT_PUBLIC_CNGN_REDEMPTION_ADDRESS` for bank payouts) to bring them back.
+
 **Decimals are not uniform.** USDT and USDC are 6dp, cUSD is 18dp, cNGN is 6dp —
 all verified on-chain. `lib/config.ts` holds the map; never hardcode 6.
 
