@@ -14,7 +14,7 @@ const FUNCTIONS_URL = () => {
   return `${base.replace(/\/$/, "")}/functions/v1/ai-assist`;
 };
 
-const ALLOWED_OPS = new Set(["parse_schedule", "explain_run"]);
+const ALLOWED_OPS = new Set(["parse_schedule", "classify_run", "risk_check"]);
 
 export async function POST(req: Request) {
   const authorization = req.headers.get("authorization");

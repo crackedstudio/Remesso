@@ -31,6 +31,7 @@ import { TermsStep, amountInUnits, defaultTerms, type TermsDraft } from "@/compo
 import { ActionBar, Amount, MINIPAY_DEPOSIT_URL, Row } from "@/components/ui";
 import { useIsMiniPay } from "@/lib/hooks";
 import { runsToCover } from "@/lib/allowance";
+import { UnusualCheck } from "@/components/UnusualCheck";
 import { isAddress } from "viem";
 
 const STEPS = ["Who", "How much", "Review"] as const;
@@ -480,6 +481,15 @@ function Review({
         </Row>
       </dl>
 
+      <UnusualCheck
+        amountUsd={amountIn ? Number(formatUnits(amountIn, token.decimals)) : null}
+        recipientAddress={recipient.payoutType === "ngn_bank" ? null : recipient.walletAddress}
+        accountNumber={recipient.payoutType === "ngn_bank" ? recipient.accountNumber : null}
+        howOften={intervalName(terms.intervalSeconds)}
+        transfers={terms.maxRuns ? Number(terms.maxRuns) : null}
+        startsNow={terms.startNow}
+      />
+
       {short && (
         <div className="notice-warn mt-3 flex items-center justify-between gap-3">
           <span>
@@ -544,4 +554,17 @@ function friendly(msg: string): string {
   if (custom) return `The contract rejected this: ${custom[1]}.`;
 
   return msg.split("\n")[0].slice(0, 300);
+}
+
+/// The names `risk_check` validates against on the server. Kept here rather
+/// than derived from a label, so a wording change in the picker cannot quietly
+/// start failing validation.
+function intervalName(seconds: number): string {
+  return {
+    300: "5 minutes",
+    604800: "weekly",
+    1209600: "fortnightly",
+    2592000: "monthly",
+    7776000: "quarterly",
+  }[seconds] ?? "monthly";
 }

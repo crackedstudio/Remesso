@@ -15,6 +15,9 @@ cd contracts && forge test
 # Self webhook signatures — verifies our Svix check against the svix library
 deno test --allow-env supabase/functions/_shared/self.test.ts
 
+# failure classifier — pins the rules to the strings the executor writes
+deno test --allow-env supabase/functions/_shared/failures.test.ts
+
 # cNGN crypto — verifies our AES/Ed25519 against the docs' reference impls
 deno test --allow-env --allow-read --allow-write --allow-run --allow-net --allow-sys \
   supabase/functions/_shared/cngn.test.ts
@@ -157,6 +160,35 @@ triggers runs.
   `link.minipay.xyz/browse` deeplink, which MiniPay provisions on request.
 - First real verification: 2026-09-19, live key, Nigerian passport. Only
   `ofac`, `minimumAge`, `excludedCountries` were disclosed — no PII.
+
+## The assistant layer — advisory, and structurally so
+
+Two providers, two jobs. Neither can move money: the contract is the authority,
+and `execute-due-runs` reads none of this.
+
+- **DeepSeek** (`_shared/llm.ts`) still drafts a schedule from a sentence. It
+  generates text, so it is confined to a draft the sender edits and signs.
+- **TypeSafe / Jev** (`_shared/typesafe.ts`) answers typed questions — a label
+  and a probability distribution, never prose. Used for three things:
+  classifying a failure reason (`_shared/failures.ts`), flagging fields a
+  draft read ambiguously, and scoring how unusual a schedule is before it is
+  signed.
+
+**No model writes the words a sender reads about a payment.** `explain_run` was
+exactly that and is gone; `classify_run` returns one of our categories and
+`web/lib/failures.ts` holds the sentences. Adding a category means editing both.
+
+**Rules before the model.** Every reason the backend writes itself is matched by
+regex in `failures.ts`; Jev is asked only about the tail (contract reverts, RPC
+errors, unseen cNGN messages) and only above 0.6 confidence. `failures.test.ts`
+pins those rules to the exact strings `execute-due-runs` and `cngn-webhook`
+emit — reword a failure there and the test fails.
+
+**`TYPESAFE_API_KEY` is optional and currently unavailable** — TypeSafe was a
+waitlist as of 2026-09-20, so **the Jev path has never run against the live
+API**. Shapes come from their docs. Without a key: rules-only classification
+(which covers every known reason), no doubt flags, no unusual line. A 4s
+timeout and every error path return `null`, so an outage is silence.
 
 ## Invariants — do not break
 

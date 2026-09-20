@@ -46,6 +46,7 @@ export function DescribeSchedule({
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
+  const [unsure, setUnsure] = useState<string[]>([]);
   const [openEnded, setOpenEnded] = useState(false);
 
   /// Append a phrase the parser understands and read the sentence again, so the
@@ -63,12 +64,14 @@ export function DescribeSchedule({
     setError(null);
     setNote(null);
     setMissing([]);
+    setUnsure([]);
     setOpenEnded(false);
     try {
       const r = await parseSchedule(t);
       onDraft(r.draft);
       setNote(r.note);
       setMissing(r.missing);
+      setUnsure(r.unsure ?? []);
       // Not "missing" — running until stopped is a real choice. But a sender who
       // simply did not say should be shown that the choice exists, rather than
       // discovering later that it renews indefinitely.
@@ -123,6 +126,18 @@ export function DescribeSchedule({
       )}
 
       {note && <p className="mt-3 text-[13px] leading-relaxed text-ink-2">{note}</p>}
+
+      {/* Read one way by the parser, plausibly another way by a reader. Saying
+          so is the point: the form below is already filled in, and a sender
+          who skims it will sign whatever was guessed. */}
+      {unsure.length > 0 && (
+        <div className="notice-warn mt-3 animate-rise">
+          <p>
+            Worth checking before you sign: {unsure.join(", ")}. The form below has what
+            we read — change anything that isn&rsquo;t right.
+          </p>
+        </div>
+      )}
 
       {openEnded && (
         <div className="notice-info mt-3 animate-rise">
