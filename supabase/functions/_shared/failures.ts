@@ -44,6 +44,19 @@ export const RULES: Array<[RegExp, string]> = [
   [/does not match the sender-authorised destination/i, "destination_mismatch"],
   [/bank account not verified/i, "bank_unverified"],
   [/^cNGN |redemption failed|stranded at the redemption address/i, "cngn_failed"],
+
+  // Reverts from our own contract and the router, by name. These reach the
+  // backend as a raw revert string, so before this they were the model's
+  // guess — and measured against the live API on 2026-09-20 the guess was
+  // wrong in exactly the way that matters: "transferFrom failed" (an
+  // allowance or balance problem) came back as a network error, which would
+  // have told a sender to wait for a retry that cannot help them.
+  [/InsufficientOutput|SlippageBoundBelowFloor|DegenerateFloor|Too little received|InvalidRate/i, "floor_not_met"],
+  [/transferFrom failed|\bSTF\b|transfer amount exceeds (balance|allowance)/i, "allowance_short"],
+  [/ScheduleExpired|ScheduleInactive|ScheduleIsCancelled|RunCapReached/i, "completed"],
+  [/NotDue/i, "not_due"],
+  [/InvalidDestination|WrongTokenForPayoutType|TokenNotAllowed/i, "destination_mismatch"],
+  [/NotExecutor|NotScheduleOwner|ZeroAddress|InvalidAmount|InvalidInterval/i, "other"],
 ];
 
 /// Classify a failure reason. Rules first, Jev for the rest, `other` if neither

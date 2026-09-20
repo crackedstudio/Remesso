@@ -19,7 +19,11 @@ const MODEL = "jev-latest";
 
 /// A judgment is worth a moment, never a page load. Past this the caller shows
 /// what it would have shown without an answer.
-const TIMEOUT_MS = 4000;
+///
+/// Measured on 2026-09-20: a warm call answers in 0.4-1.6s, but the first call
+/// of a session took over 4s and was cut off. So the default is generous, and
+/// anything a person is waiting on passes a shorter one.
+const TIMEOUT_MS = 8000;
 
 export type Choice = { type: "choice"; instructions: string; criteria: Record<string, unknown> };
 export type Score = { type: "score"; instructions: string; criteria: unknown[] };
@@ -52,11 +56,12 @@ export const isConfigured = (): boolean => Boolean(Deno.env.get("TYPESAFE_API_KE
 export async function ask(
   state: unknown,
   questions: Record<string, Question>,
+  timeoutMs = TIMEOUT_MS,
 ): Promise<Record<string, Answer> | null> {
   const key = Deno.env.get("TYPESAFE_API_KEY");
   if (!key) return null;
 
-  const abort = AbortSignal.timeout(TIMEOUT_MS);
+  const abort = AbortSignal.timeout(timeoutMs);
   try {
     const res = await fetch(ENDPOINT, {
       method: "POST",

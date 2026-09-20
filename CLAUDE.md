@@ -184,11 +184,27 @@ errors, unseen cNGN messages) and only above 0.6 confidence. `failures.test.ts`
 pins those rules to the exact strings `execute-due-runs` and `cngn-webhook`
 emit — reword a failure there and the test fails.
 
-**`TYPESAFE_API_KEY` is optional and currently unavailable** — TypeSafe was a
-waitlist as of 2026-09-20, so **the Jev path has never run against the live
-API**. Shapes come from their docs. Without a key: rules-only classification
-(which covers every known reason), no doubt flags, no unusual line. A 4s
-timeout and every error path return `null`, so an outage is silence.
+**`TYPESAFE_API_KEY` is optional.** Without it: rules-only classification
+(which covers every known reason), no doubt flags, no unusual line. Every
+error path returns `null`, so an outage is silence rather than a broken screen.
+
+Measured against the live API 2026-09-20, which is what the thresholds are set
+from:
+
+| Judgment | Confidence seen | Threshold |
+|---|---|---|
+| failure category (13 options) | 0.44–0.93 | 0.6 |
+| frequency / payout rail / amount stated | 0.98–1.00 | 0.8 |
+| unusual schedule (4 levels) | 0.96–0.99 | score 1.5 + conf 0.5 |
+
+Latency 0.4–1.9s warm; the first call of a session once took past 4s, hence an
+8s default and 5s where a sender is watching. A 13-option Choice is far less
+certain than a 3-option one — do not reuse the 0.6 bar for a narrower question.
+
+**Reverts are matched in code, not judged.** `InsufficientOutput`,
+`transferFrom failed`, `RunCapReached` and friends are in `RULES`: asked live,
+Jev read "transferFrom failed" as a network error at 0.63, which would have
+told a sender to wait for a retry instead of allowing payments again.
 
 ## Invariants — do not break
 

@@ -234,7 +234,9 @@ async function parseSchedule(text: string) {
   // draft exactly as it was before.
   const [out, doubts] = await Promise.all([
     complete(PARSE_SYSTEM, text) as Promise<Record<string, unknown>>,
-    ask({ request: text }, DOUBT_QUESTIONS),
+    // The sender is watching a spinner here, and DeepSeek's own answer is what
+    // fills the form: doubt that arrives late is worth less than a fast draft.
+    ask({ request: text }, DOUBT_QUESTIONS, 5000),
   ]);
 
   // Clamp every field to something the form already accepts. Anything the model
