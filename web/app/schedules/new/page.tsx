@@ -30,6 +30,7 @@ import {
 import { TermsStep, amountInUnits, defaultTerms, type TermsDraft } from "@/components/TermsStep";
 import { ActionBar, Amount, MINIPAY_DEPOSIT_URL, Row } from "@/components/ui";
 import { useIsMiniPay } from "@/lib/hooks";
+import { runsToCover } from "@/lib/allowance";
 import { isAddress } from "viem";
 
 const STEPS = ["Who", "How much", "Review"] as const;
@@ -39,7 +40,7 @@ const STEPS = ["Who", "How much", "Review"] as const;
 /// not just that something is happening.
 const PHASES = [
   { key: "Preparing", label: "Saving the details" },
-  { key: "Approve", label: "Approve in your wallet" },
+  { key: "Approve", label: "Allow it in your wallet" },
   { key: "Sign", label: "Sign the authorisation" },
   { key: "Confirming", label: "Confirming on the network" },
 ] as const;
@@ -66,11 +67,17 @@ export default function NewSchedulePage() {
   const { data: balance } = useUsdtBalance(fundingToken.address);
   const market = useMarketRate(amountIn ?? 0n);
 
-  // Unlimited schedules still need a finite allowance. A year of runs is a
-  // defensible default: long enough not to nag, short enough that a forgotten
-  // schedule cannot drain a wallet indefinitely.
-  const runsToCover = terms.maxRuns ? Number(terms.maxRuns) : 12;
-  const requiredAllowance = amountIn ? amountIn * BigInt(runsToCover) : 0n;
+  // Sized to this schedule's own life — its transfer count, its expiry, or a
+  // year of its rhythm, whichever comes first. One approval then lasts the
+  // schedule out instead of running dry every few runs, which is the only way
+  // to spare this audience a second one: MiniPay cannot sign messages, so
+  // permit-style approvals are unavailable and each one costs a transaction.
+  const runs = runsToCover({
+    intervalSeconds: terms.intervalSeconds,
+    maxRuns: terms.maxRuns ? Number(terms.maxRuns) : 0,
+    expiresAtMs: terms.expiresAt ? Date.parse(`${terms.expiresAt}T23:59:59Z`) : null,
+  });
+  const requiredAllowance = amountIn ? amountIn * BigInt(runs) : 0n;
   // Always approve, and approve what is already there PLUS this schedule's
   // share. `approve` replaces the allowance rather than adding to it, and the
   // old `allowance < required` test let a new schedule quietly borrow the
@@ -309,7 +316,7 @@ export default function NewSchedulePage() {
             converts={converts}
             marketRateE6={market.rateE6}
             requiredAllowance={requiredAllowance}
-            needsApproval={needsApproval}
+            allowanceRuns={runs}
             balance={balance}
             inMiniPay={inMiniPay}
           />
@@ -369,7 +376,7 @@ export default function NewSchedulePage() {
           </button>
         ) : (
           <button className="btn-primary flex-1" disabled={Boolean(busy)} onClick={authorise}>
-            {busy ? "Working…" : needsApproval ? "Approve & authorise" : "Authorise"}
+            {busy ? "Working…" : needsApproval ? "Allow & authorise" : "Authorise"}
           </button>
         )}
       </ActionBar>
@@ -409,7 +416,7 @@ function Review({
   converts,
   marketRateE6,
   requiredAllowance,
-  needsApproval,
+  allowanceRuns,
   balance,
   inMiniPay,
 }: {
@@ -420,7 +427,7 @@ function Review({
   converts: boolean;
   marketRateE6?: bigint;
   requiredAllowance: bigint;
-  needsApproval: boolean;
+  allowanceRuns: number;
   balance?: bigint;
   inMiniPay: boolean;
 }) {
@@ -466,8 +473,8 @@ function Review({
         <Row label="First one">{terms.startNow ? "Right away" : `In ${spanLabel(terms.intervalSeconds)}`}</Row>
         <Row label="Expires">{new Date(`${terms.expiresAt}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</Row>
         <Row
-          label="You approve"
-          sub="Added to what you have already approved, so your other schedules keep theirs. Covers every run of this one; pause or cancel it any time."
+          label="You allow"
+          sub={`Enough for ${allowanceRuns === 1 ? "this transfer" : `${allowanceRuns} transfers`} — the rest of this schedule. Added to what you have already allowed, so your other schedules keep theirs.`}
         >
           {formatUnits(requiredAllowance, token.decimals)} {token.symbol}
         </Row>
