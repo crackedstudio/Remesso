@@ -150,6 +150,38 @@ export function useHistory(id: string, schedule: Schedule | null | undefined) {
   return { ...db, data: db.data === undefined ? undefined : runs };
 }
 
+/// Milliseconds until a moment, re-rendered as it moves.
+///
+/// Ticks every second inside the last hour and every half minute before that:
+/// a countdown nobody can see move is just a re-render. Returns `null` when
+/// there is nothing to count towards, and never goes below zero — what
+/// happens after the moment is the contract's business, not the clock's.
+export function useTimeUntil(target: string | number | null | undefined): number | null {
+  const targetMs = target == null
+    ? null
+    : typeof target === "number"
+      ? target * 1000
+      : Date.parse(target);
+
+  const [remaining, setRemaining] = useState(() =>
+    targetMs == null || Number.isNaN(targetMs) ? null : Math.max(0, targetMs - Date.now())
+  );
+
+  useEffect(() => {
+    if (targetMs == null || Number.isNaN(targetMs)) {
+      setRemaining(null);
+      return;
+    }
+    const tick = () => setRemaining(Math.max(0, targetMs - Date.now()));
+    tick();
+    const far = targetMs - Date.now() > 3600_000;
+    const id = setInterval(tick, far ? 30_000 : 1000);
+    return () => clearInterval(id);
+  }, [targetMs]);
+
+  return remaining;
+}
+
 /// The sender's Self verification standing. Optional and gates nothing — it is
 /// read for the badge only, never by anything that decides whether a run pays.
 ///

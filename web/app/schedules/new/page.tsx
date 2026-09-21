@@ -27,7 +27,7 @@ import {
   recipientIsComplete,
   type RecipientDraft,
 } from "@/components/RecipientStep";
-import { TermsStep, amountInUnits, defaultTerms, type TermsDraft } from "@/components/TermsStep";
+import { TermsStep, amountInUnits, defaultTerms, expiryProblem, type TermsDraft } from "@/components/TermsStep";
 import { ActionBar, Amount, MINIPAY_DEPOSIT_URL, Row } from "@/components/ui";
 import { useIsMiniPay } from "@/lib/hooks";
 import { runsToCover } from "@/lib/allowance";
@@ -101,9 +101,7 @@ export default function NewSchedulePage() {
       : step === 1
         ? !amountIn
           ? "Enter an amount to continue"
-          : !terms.expiresAt
-            ? "Choose an expiry date to continue"
-            : null
+          : expiryProblem(terms)
         : null;
   const canContinue = blocker === null;
 

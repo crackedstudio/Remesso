@@ -135,3 +135,22 @@ export function rateToNairaPerUsd(rateE6: bigint | string | number): number {
 export function nairaPerUsdToRateE6(naira: number): bigint {
   return BigInt(Math.floor(naira * 1_000_000));
 }
+
+/// A countdown to a moment, for a clock that is ticking while someone watches.
+///
+/// `relativeTime` rounds to the nearest minute and reads as a statement ("in
+/// 4 minutes"); this counts. Under an hour it shows seconds, because the whole
+/// point is watching it move. Past the moment it stops counting up: a payment
+/// that is a minute late is not interesting, it is either about to land or in
+/// the checks above it.
+export function countdown(msRemaining: number): string {
+  if (msRemaining <= 0) return "any moment now";
+  const s = Math.round(msRemaining / 1000);
+  if (s < 3600) {
+    const m = Math.floor(s / 60);
+    return `${m}:${String(s % 60).padStart(2, "0")}`;
+  }
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  return m ? `${h}h ${m}m` : `${h}h`;
+}

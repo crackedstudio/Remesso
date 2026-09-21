@@ -9,13 +9,23 @@ is the entity key.
 
 | | |
 |---|---|
-| project | `project_cmt8exmp1z5f401z7gnkohrw9` |
-| subgraph | `remesso-celo-celo/1.0.0`, tagged `prod` |
-| endpoint | `https://api.goldsky.com/api/public/project_cmt8exmp1z5f401z7gnkohrw9/subgraphs/remesso-celo-celo/prod/gn` |
+| project | `project_cmub9zi745rtc01ts1xx66zy6` |
+| subgraph | `remesso-celo/1.0.0` — deployed from the dashboard, **no `prod` tag** |
+| endpoint | `https://api.goldsky.com/api/public/project_cmub9zi745rtc01ts1xx66zy6/subgraphs/remesso-celo/1.0.0/gn` |
 | chain | `celo` (42220), from block `77741897` — V3's deployment block |
 
-Goldsky appends the chain to the name you give it, hence `-celo` twice.
-Measured 2026-09-21: 1–2 blocks behind head at Celo's 1s block time.
+Deployed from the Goldsky dashboard, which keeps the name as typed. The CLI
+(`--from-abi`) appends the chain instead, which is where a `remesso-celo-celo`
+name would come from. Measured 2026-09-21: 4 blocks behind head at Celo's 1s
+block time.
+
+**The URL is version-pinned**, because a dashboard deploy creates no tag. A
+future `1.1.0` therefore needs `NEXT_PUBLIC_GOLDSKY_SUBGRAPH_URL` changed too,
+unless a `prod` tag is created first and the URL switched to it:
+
+```bash
+goldsky subgraph tag create remesso-celo/1.1.0 --tag prod
+```
 
 ## What reads it
 
@@ -39,9 +49,10 @@ cd indexer && goldsky subgraph deploy remesso-celo/1.1.0 --from-abi goldsky.json
 goldsky subgraph tag create remesso-celo-celo/1.1.0 --tag prod
 ```
 
-The deploy is against the *un*-suffixed name; the tag against the suffixed
-one. `--tag` on the deploy command gets that wrong and fails after deploying,
-which is harmless but confusing.
+Note the CLI appends the chain: deploying `remesso-celo/1.1.0` this way
+produces `remesso-celo-celo/1.1.0`, a *different* subgraph from the
+dashboard-deployed `remesso-celo/1.0.0` the app currently reads. Tag whichever
+one you intend to serve, and point the env var at it.
 
 Deployment block, if it is ever needed again: binary-search `cast code
 <addr> --block N` on forno.

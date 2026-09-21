@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMarketRate } from "@/lib/hooks";
 import {
   INTERVALS,
@@ -26,6 +26,32 @@ function isoDate(days: number): string {
   return new Date(Date.now() + days * 86400_000).toISOString().slice(0, 10);
 }
 
+/// The day the last transfer lands on, with an hour's margin — clamped to what
+/// the contract allows (today at the earliest, 364 days at the latest).
+///
+/// The expiry is mandatory (V3 rejects a schedule without one) but it is not a
+/// question a sender arrives with an answer to. They know who, how much, how
+/// often and how many; the date those add up to is arithmetic, so the form
+/// does it. Anyone who wants it to stop sooner can still change the field, and
+/// from then on it stays theirs.
+///
+/// Measured in time rather than whole days, because "two transfers five
+/// minutes apart, ending today" is a sentence senders actually write, and
+/// rounding it up to two days contradicts them. The hour of margin is what
+/// keeps a same-day schedule honest: a run fires on the tick after its due
+/// time, not at a precise instant.
+function expiryFor(t: Pick<TermsDraft, "intervalSeconds" | "maxRuns" | "startNow">): string {
+  const runs = Number(t.maxRuns);
+  // Open-ended: nothing to derive from, so it stays a year — the ceiling the
+  // contract imposes anyway.
+  if (!runs || !Number.isFinite(runs)) return isoDate(330);
+
+  const spanMs = (t.startNow ? runs - 1 : runs) * t.intervalSeconds * 1000;
+  const lastTransfer = Date.now() + spanMs + 3600_000;
+  const max = Date.now() + 364 * 86400_000;
+  return new Date(Math.min(lastTransfer, max)).toISOString().slice(0, 10);
+}
+
 export const defaultTerms: TermsDraft = {
   amount: "",
   intervalSeconds: INTERVALS.find((i) => i.label === "Monthly")!.seconds,
@@ -34,9 +60,39 @@ export const defaultTerms: TermsDraft = {
   // V2 requires every schedule to expire, capped at MAX_LIFETIME (365 days).
   // A floor rate that never has to be re-consented is the stale-floor defect
   // the security review found, so "never" is no longer offered.
-  expiresAt: isoDate(330),
+  expiresAt: expiryFor({ intervalSeconds: INTERVALS.find((i) => i.label === "Monthly")!.seconds, maxRuns: "12", startNow: true }),
   startNow: true,
 };
+
+/// Why this expiry cannot be signed, or null.
+///
+/// The date field can be typed into, so the picker's own min and max are a
+/// hint rather than a rule, and each of these ends badly *after* the sender
+/// has already paid for an approval: the contract reverts a date that has
+/// passed (`ScheduleExpired`) or one beyond a year (`ScheduleLifetimeTooLong`),
+/// and a schedule whose first transfer falls after its expiry is created,
+/// charged for, and then never runs.
+export function expiryProblem(terms: TermsDraft): string | null {
+  if (!terms.expiresAt) return "Choose an end date to continue";
+
+  // Matches what is sent on-chain: the end of that day, UTC.
+  const expiry = Date.parse(`${terms.expiresAt}T23:59:59Z`);
+  if (Number.isNaN(expiry)) return "That end date isn't a real date";
+
+  const now = Date.now();
+  if (expiry <= now) return "That date has already passed — pick a later one";
+  if (expiry > now + 365 * 86400_000) return "A schedule can run for a year at most";
+
+  // `startNow` fires the first transfer immediately; otherwise the contract
+  // waits one full interval before the first one.
+  const firstTransfer = terms.startNow ? now : now + terms.intervalSeconds * 1000;
+  if (expiry <= firstTransfer) {
+    return terms.startNow
+      ? "That date is too soon for a transfer to go through"
+      : "It ends before the first transfer — pick a later date, or send the first one now";
+  }
+  return null;
+}
 
 /// Parsed at the funding token's own scale — cUSD is 18dp while USDT and USDC
 /// are 6dp, so a fixed 6 would be wrong by 10^12 for a third of the assets.
@@ -72,7 +128,22 @@ export function TermsStep({
   // Whether the count is being typed rather than tapped. Without this, typing
   // "6" on the way to "60" would light the 6 chip and empty the field.
   const [customCount, setCustomCount] = useState(!QUICK_COUNTS.includes(value.maxRuns));
+  // Until the sender edits the date themselves, it follows their answers. After
+  // that it is theirs and nothing here moves it.
+  const [dateIsTheirs, setDateIsTheirs] = useState(false);
   const market = useMarketRate(converts ? (amount ?? 0n) : 0n);
+
+  // A typed date can be anything at all, so it is checked where it is typed —
+  // the same check that stops the sender reaching the wallet with it.
+  const problem = expiryProblem(value);
+
+  const derived = expiryFor(value);
+  useEffect(() => {
+    if (!dateIsTheirs && value.expiresAt !== derived) onChange({ ...value, expiresAt: derived });
+    // `value` and `onChange` are deliberately absent: this reacts to the three
+    // answers the date is derived from, not to every keystroke in the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derived, dateIsTheirs]);
 
   const floorE6 = market.rateE6
     ? (market.rateE6 * BigInt(100 - value.floorPercent)) / 100n
@@ -218,16 +289,25 @@ export function TermsStep({
         <input
           id="expires"
           type="date"
-          className="field"
           value={value.expiresAt}
           min={isoDate(1)}
           max={isoDate(364)}
-          onChange={(e) => set({ expiresAt: e.target.value })}
+          className={`field ${problem ? "field-invalid" : ""}`}
+          onChange={(e) => {
+            setDateIsTheirs(true);
+            set({ expiresAt: e.target.value });
+          }}
         />
-        {/* Not optional, and worth saying why rather than just enforcing it. */}
+        {problem && <p className="mt-2 text-[13px] text-danger">{problem}</p>}
         <p className="hint">
-          Up to a year. Your floor rate is fixed for the life of the schedule, so it has to
-          be re-confirmed rather than drift against the market forever.
+          {dateIsTheirs || !Number(value.maxRuns)
+            ? "Up to a year."
+            : `Set from your ${value.maxRuns} ${
+              Number(value.maxRuns) === 1 ? "transfer" : "transfers"
+            } — the day the last one lands. Change it to end sooner.`}{" "}
+          Your {converts ? "floor rate is" : "terms are"} fixed for the life of the
+          schedule, so it has to be re-confirmed rather than drift against the market
+          forever.
         </p>
       </div>
 

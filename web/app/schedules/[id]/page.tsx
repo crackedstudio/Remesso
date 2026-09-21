@@ -11,9 +11,10 @@ import { txOverrides } from "@/lib/tx";
 import { executorAbi } from "@/lib/abi";
 import { EXECUTOR_ADDRESS, EXPLORER, CNGN, tokenFor } from "@/lib/config";
 import { supabase } from "@/lib/supabase";
-import { useHistory, useIsMiniPay, useRunnability, useSchedule } from "@/lib/hooks";
+import { useHistory, useIsMiniPay, useRunnability, useSchedule, useTimeUntil } from "@/lib/hooks";
 import { recipientLabel } from "@/lib/identity";
 import {
+  countdown,
   everyLabel,
   formatUnits,
   rateToNairaPerUsd,
@@ -40,6 +41,13 @@ export default function ScheduleDetailPage() {
   // Database rows with the chain allowed ahead of them — see `useHistory`.
   const { data: runs } = useHistory(id, schedule);
   const { data: runnability } = useRunnability(schedule?.onchain_id ?? null);
+
+  // The contract's own next-run time when it has answered, the database mirror
+  // until then. Both are advisory here — this is a clock, not a promise.
+  const nextRunAt = runnability?.nextRunAt != null
+    ? Number(runnability.nextRunAt)
+    : schedule?.next_run_at ?? null;
+  const untilNext = useTimeUntil(schedule?.status === "active" ? nextRunAt : null);
 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -149,9 +157,13 @@ export default function ScheduleDetailPage() {
           <Amount value={formatUnits(schedule.amount_in, token.decimals)} unit={token.symbol} size="hero" />
           <p className="mt-2 text-[15px] text-ink-2">
             {everyLabel(schedule.interval_seconds)}
-            {schedule.status === "active" && (
+            {schedule.status === "active" && untilNext !== null && (
               <>
-                <span className="text-ink-3"> · </span>next {relativeTime(schedule.next_run_at)}
+                <span className="text-ink-3"> · </span>
+                {untilNext > 0 ? "next in " : ""}
+                <span className={`font-medium tabular-nums ${untilNext > 0 ? "text-ink" : "text-clay-deep"}`}>
+                  {countdown(untilNext)}
+                </span>
               </>
             )}
           </p>
@@ -210,7 +222,11 @@ export default function ScheduleDetailPage() {
               ok={runnability.due || schedule.status !== "active"}
               label="Due now"
               failLabel="Not due yet"
-              fix={`Next attempt ${relativeTime(Number(runnability.nextRunAt))}.`}
+              fix={
+                untilNext !== null && untilNext > 0
+                  ? `Next attempt in ${countdown(untilNext)}.`
+                  : "Due now — waiting for it to go through."
+              }
               neutral
             />
           </ul>
