@@ -8,6 +8,7 @@ import {
 } from "npm:viem@2";
 import { privateKeyToAccount } from "npm:viem@2/accounts";
 import { celo } from "npm:viem@2/chains";
+import { attributionSuffix } from "./attribution.ts";
 import { CELO, LIMITS } from "./config.ts";
 
 export const publicClient = createPublicClient({
@@ -169,6 +170,10 @@ export async function executeRun(onchainId: bigint, minOut: bigint) {
     functionName: "executeRun",
     args: [onchainId, minOut],
     account: wc.account,
+    // Appended after the calldata, invisible to the contract. Every run is a
+    // Celo transaction this app caused, and untagged ones cannot be claimed
+    // later — see _shared/attribution.ts.
+    ...(attributionSuffix ? { dataSuffix: attributionSuffix } : {}),
   });
   const hash = await wc.writeContract(request);
   const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 2 });

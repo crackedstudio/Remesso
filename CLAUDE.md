@@ -218,6 +218,25 @@ certain than a 3-option one — do not reuse the 0.6 bar for a narrower question
 Jev read "transferFrom failed" as a network error at 0.63, which would have
 told a sender to wait for a retry instead of allowing payments again.
 
+## Attribution (ERC-8021)
+
+Every transaction Remesso causes carries the `remesso` tag: the executor's runs
+(`_shared/attribution.ts`, spread into `simulateContract`) and every wallet
+write a sender signs (`web/lib/tx.ts` → `txOverrides()`, which already rode on
+all of them). The suffix sits after the calldata and the EVM discards it, so
+execution is unchanged.
+
+It matters because Celo's reward distribution reads this data and **untagged
+transactions can never be claimed retroactively**. Backend and frontend share
+one code deliberately — a hostname-derived code would change when the app moves
+off ngrok and split the history. Crediting `remesso` on the dashboard is a
+registry step with the Celo team; the tagging works regardless.
+
+The backend encodes the suffix itself rather than importing
+`@celo/attribution-tags` (Deno blocked the fresh version, and this sits in the
+path of every remittance). `attribution.test.ts` pins the bytes to the SDK's
+own output — one wrong byte and the indexer sees nothing, silently.
+
 ## Invariants — do not break
 
 - **`delivered` is not `paid_out`.** For a bank payout, the swap settling means

@@ -1,4 +1,5 @@
 import { isMiniPay } from "./wagmi";
+import { attributionSuffix } from "./attribution";
 
 /// Transaction overrides for the connected wallet.
 ///
@@ -10,6 +11,13 @@ import { isMiniPay } from "./wagmi";
 ///
 /// Applied only in MiniPay: a desktop wallet on Celo is better off with the
 /// chain's own fee handling than with a legacy transaction we forced on it.
-export function txOverrides(): { type?: "legacy" } {
-  return isMiniPay() ? { type: "legacy" } : {};
+/// Also carries the Celo attribution tag, because every wallet write in this
+/// app already spreads these overrides — which makes this the one place a tag
+/// cannot be forgotten on a new transaction.
+export function txOverrides(): { type?: "legacy"; dataSuffix?: `0x${string}` } {
+  const suffix = attributionSuffix();
+  return {
+    ...(isMiniPay() ? { type: "legacy" as const } : {}),
+    ...(suffix ? { dataSuffix: suffix } : {}),
+  };
 }
