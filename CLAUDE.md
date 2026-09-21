@@ -237,6 +237,32 @@ The backend encodes the suffix itself rather than importing
 path of every remittance). `attribution.test.ts` pins the bytes to the SDK's
 own output — one wrong byte and the indexer sees nothing, silently.
 
+## V4 and paid triggering
+
+`RemessoExecutorV4` is deployed at `0x288b7cDD10e069eA64D4984c3E5fa0D9c5816009`
+(verified, 2026-09-22) and **nothing points at it**. V3 still runs every live
+schedule; moving means every sender re-approves and re-creates. V4 is not
+audited.
+
+What it adds, all pinned at consent so no owner action reaches a signed
+schedule: a payout asset per schedule from an allowlist, a commission (25bps,
+`MAX_FEE_BPS` 50 in code), and `runNow` — an early send, bounded by an
+allowance of triggers the sender sets, a 60s gap, and every limit they signed.
+The floor is measured on the NET amount: a floor is a rate, and charging it on
+the gross would tighten it by the fee.
+
+`trigger-run` sells one early send over x402 — an agent pays $0.01 USDC, one
+run fires ahead of cadence. The caller buys timing and nothing else. Order is
+verify -> run -> settle, so a reverted run charges nobody; a settlement that
+fails after a successful run is logged loudly because it is our loss.
+`verify_jwt = false`: the payment is the authentication, and callers have no
+Supabase JWT. It answers 403 before quoting a price for any schedule whose
+sender did not nominate this executor — nobody should pay to learn that.
+
+**Reads lag.** The 403/402 decision reads the chain; just after a state change
+forno can still answer from a block behind. Seen on 2026-09-22 right after a
+cancel. It self-corrects within seconds.
+
 ## Invariants — do not break
 
 - **`delivered` is not `paid_out`.** For a bank payout, the swap settling means

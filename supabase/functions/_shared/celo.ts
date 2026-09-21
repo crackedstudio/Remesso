@@ -40,6 +40,61 @@ export const executorAbi = parseAbi([
   "function paused() view returns (bool)",
 ]);
 
+/// V4 only. Kept separate from `executorAbi` so nothing can call these against
+/// the V3 address by accident — a `runNow` selector that does not exist there
+/// would revert as a plain failure with no hint why.
+export const executorV4Abi = parseAbi([
+  "function runNow(uint256 id, uint256 amountOutMinimum) returns (uint256)",
+  "function triggerability(uint256 id, address caller) view returns (bool canTrigger, uint16 triggersLeft, uint64 earliestTrigger)",
+  "function runnability(uint256 id) view returns (bool due, bool funded, bool approved, uint256 floor, uint64 nextRunAt)",
+]);
+
+/// The V4 deployment. Empty until the migration; `trigger-run` is the only
+/// thing that reads it, and it answers 503 rather than guessing.
+export const executorV4 = (Deno.env.get("REMESSO_EXECUTOR_V4_ADDRESS") ?? "") as `0x${string}` | "";
+
+/// Can this executor trigger an early send for `id`, and how many are left?
+export async function triggerability(id: bigint) {
+  const [canTrigger, triggersLeft, earliestTrigger] = await publicClient.readContract({
+    address: executorV4 as `0x${string}`,
+    abi: executorV4Abi,
+    functionName: "triggerability",
+    args: [id, executorAccount().address],
+  });
+  return { canTrigger, triggersLeft, earliestTrigger };
+}
+
+/// The floor the contract will enforce for this schedule, as V4 computes it.
+export async function v4Runnability(id: bigint) {
+  const [due, funded, approved, floor, nextRunAt] = await publicClient.readContract({
+    address: executorV4 as `0x${string}`,
+    abi: executorV4Abi,
+    functionName: "runnability",
+    args: [id],
+  });
+  return { due, funded, approved, floor, nextRunAt };
+}
+
+/// Send one run early, as the address the sender nominated as trigger.
+///
+/// Every limit still applies inside the contract: the destination, the amount,
+/// the floor, the run cap, the expiry, and the sender's own allowance of early
+/// sends. This only asks; the contract decides.
+export async function runNow(id: bigint, amountOutMinimum: bigint) {
+  const wc = walletClient();
+  const { request } = await publicClient.simulateContract({
+    address: executorV4 as `0x${string}`,
+    abi: executorV4Abi,
+    functionName: "runNow",
+    args: [id, amountOutMinimum],
+    account: wc.account,
+    ...(attributionSuffix ? { dataSuffix: attributionSuffix } : {}),
+  });
+  const hash = await wc.writeContract(request);
+  const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+  return { hash, receipt };
+}
+
 const quoterAbi = parseAbi([
   "function quoteExactInputSingle((address tokenIn,address tokenOut,uint256 amountIn,uint24 fee,uint160 sqrtPriceLimitX96)) returns (uint256 amountOut,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)",
 ]);

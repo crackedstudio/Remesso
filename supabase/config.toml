@@ -49,3 +49,11 @@ verify_jwt = true
 # verifies the signature over the raw body and answers 401 on a mismatch.
 [functions.self-webhook]
 verify_jwt = false
+
+# Paid triggering over x402. The caller is an agent or an app with a signed
+# USDC authorisation, not a Supabase user — there is no JWT to present, and the
+# payment is the authentication. The handler verifies it with Celo's hosted
+# facilitator before doing anything, and refuses outright for any schedule
+# whose sender did not nominate this executor as its trigger.
+[functions.trigger-run]
+verify_jwt = false
