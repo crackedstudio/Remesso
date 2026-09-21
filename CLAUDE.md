@@ -15,6 +15,9 @@ cd contracts && forge test
 # Self webhook signatures — verifies our Svix check against the svix library
 deno test --allow-env supabase/functions/_shared/self.test.ts
 
+# failure classifier — pins the rules to the strings the executor writes
+deno test --allow-env supabase/functions/_shared/failures.test.ts
+
 # cNGN crypto — verifies our AES/Ed25519 against the docs' reference impls
 deno test --allow-env --allow-read --allow-write --allow-run --allow-net --allow-sys \
   supabase/functions/_shared/cngn.test.ts
@@ -123,6 +126,14 @@ in cNGN sees nothing and cannot add a custom token.
 The swap rails (`Wallet`, `BankRedemption`) still convert to cNGN and remain the
 path for bank payouts, where no wallet is involved.
 
+**Both are hidden in the UI as of 2026-09-20** — `NEXT_PUBLIC_ENABLE_CNGN_RAILS`
+is not `"1"`, so a sender can only authorise a stablecoin payout. Naira is what
+carries the open regulatory question and the unverified cNGN account; without it
+the product needs no payout partner and no money-transmission answer. Nothing is
+deleted: the contract has all three rails, `execute-due-runs` still runs them,
+and existing schedules of any kind still render. Set the flag to `"1"` (plus
+`NEXT_PUBLIC_CNGN_REDEMPTION_ADDRESS` for bank payouts) to bring them back.
+
 **Decimals are not uniform.** USDT and USDC are 6dp, cUSD is 18dp, cNGN is 6dp —
 all verified on-chain. `lib/config.ts` holds the map; never hardcode 6.
 
@@ -157,6 +168,51 @@ triggers runs.
   `link.minipay.xyz/browse` deeplink, which MiniPay provisions on request.
 - First real verification: 2026-09-19, live key, Nigerian passport. Only
   `ofac`, `minimumAge`, `excludedCountries` were disclosed — no PII.
+
+## The assistant layer — advisory, and structurally so
+
+Two providers, two jobs. Neither can move money: the contract is the authority,
+and `execute-due-runs` reads none of this.
+
+- **DeepSeek** (`_shared/llm.ts`) still drafts a schedule from a sentence. It
+  generates text, so it is confined to a draft the sender edits and signs.
+- **TypeSafe / Jev** (`_shared/typesafe.ts`) answers typed questions — a label
+  and a probability distribution, never prose. Used for three things:
+  classifying a failure reason (`_shared/failures.ts`), flagging fields a
+  draft read ambiguously, and scoring how unusual a schedule is before it is
+  signed.
+
+**No model writes the words a sender reads about a payment.** `explain_run` was
+exactly that and is gone; `classify_run` returns one of our categories and
+`web/lib/failures.ts` holds the sentences. Adding a category means editing both.
+
+**Rules before the model.** Every reason the backend writes itself is matched by
+regex in `failures.ts`; Jev is asked only about the tail (contract reverts, RPC
+errors, unseen cNGN messages) and only above 0.6 confidence. `failures.test.ts`
+pins those rules to the exact strings `execute-due-runs` and `cngn-webhook`
+emit — reword a failure there and the test fails.
+
+**`TYPESAFE_API_KEY` is optional.** Without it: rules-only classification
+(which covers every known reason), no doubt flags, no unusual line. Every
+error path returns `null`, so an outage is silence rather than a broken screen.
+
+Measured against the live API 2026-09-20, which is what the thresholds are set
+from:
+
+| Judgment | Confidence seen | Threshold |
+|---|---|---|
+| failure category (13 options) | 0.44–0.93 | 0.6 |
+| frequency / payout rail / amount stated | 0.98–1.00 | 0.8 |
+| unusual schedule (4 levels) | 0.96–0.99 | score 1.5 + conf 0.5 |
+
+Latency 0.4–1.9s warm; the first call of a session once took past 4s, hence an
+8s default and 5s where a sender is watching. A 13-option Choice is far less
+certain than a 3-option one — do not reuse the 0.6 bar for a narrower question.
+
+**Reverts are matched in code, not judged.** `InsufficientOutput`,
+`transferFrom failed`, `RunCapReached` and friends are in `RULES`: asked live,
+Jev read "transferFrom failed" as a network error at 0.63, which would have
+told a sender to wait for a retry instead of allowing payments again.
 
 ## Invariants — do not break
 

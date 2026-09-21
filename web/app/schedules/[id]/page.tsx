@@ -3,7 +3,7 @@
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { explainRun } from "@/lib/ai";
+import { classifyRun } from "@/lib/ai";
 import { useWriteContract } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 import { wagmiConfig } from "@/lib/wagmi";
@@ -23,6 +23,7 @@ import { RunPill, SchedulePill } from "@/components/StatusPill";
 import { ReapproveButton } from "@/components/Reapprove";
 import { Amount, MINIPAY_DEPOSIT_URL, Row, Sheet, Skeleton } from "@/components/ui";
 import { one, type Run } from "@/lib/types";
+import { failureCopy } from "@/lib/failures";
 
 export default function ScheduleDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -414,36 +415,38 @@ function Check({
   );
 }
 
-/// The backend's reason, rewritten for the person reading it.
+/// The backend's reason, in Remesso's own words.
 ///
 /// The raw string is always rendered and never replaced — it is what actually
-/// happened, and it is what someone will quote when asking for help. The
-/// assistant's version sits above it as a reading aid; if the call fails or
-/// is not configured only the raw reason shows, and nothing is lost.
+/// happened, and it is what someone will quote when asking for help. Above it
+/// sits one of our sentences, chosen by category: the backend matches the
+/// reasons it writes itself, and asks Jev only about reasons it has never
+/// seen. No model writes the words a sender reads about their money; the worst
+/// a wrong category can do is show a sentence that fits less well than it
+/// could, with the real reason directly underneath.
 function WhatHappened({ reason, skipped }: { reason: string; skipped: boolean }) {
   const { data } = useQuery({
-    queryKey: ["explain", reason],
-    queryFn: () => explainRun(reason),
-    // Reasons repeat across runs and the wording is not time-sensitive, so this
+    queryKey: ["classify", reason],
+    queryFn: () => classifyRun(reason),
+    // Reasons repeat across runs and a category is not time-sensitive, so this
     // is cached hard rather than re-asked per render.
     staleTime: 24 * 3600 * 1000,
     gcTime: 24 * 3600 * 1000,
     retry: false,
   });
 
+  const copy = failureCopy(data?.category);
+  // A skip is usually the contract doing its job — the floor held, or the
+  // wallet was short — so it is drawn as a caution, not a failure.
+  const calm = skipped || copy.expected;
+
   return (
-    // A skip is the contract doing its job — the floor held, or the wallet was
-    // short — so it is drawn as a caution, not a failure.
-    <div className={`${skipped ? "notice-warn" : "notice-danger"} mt-2`}>
-      {data && (
-        <p className="text-ink">
-          <span className="font-medium">{data.title}.</span> {data.detail}
-          {data.action && <span className="font-medium"> {data.action}.</span>}
-        </p>
-      )}
-      <p className={`mono ${data ? "mt-1.5 border-t border-ink/10 pt-1.5 text-[12px] opacity-80" : ""}`}>
-        {reason}
+    <div className={`${calm ? "notice-warn" : "notice-danger"} mt-2`}>
+      <p className="text-ink">
+        <span className="font-medium">{copy.title}.</span> {copy.detail}
+        {copy.action && <span className="font-medium"> {copy.action}.</span>}
       </p>
+      <p className="mono mt-1.5 border-t border-ink/10 pt-1.5 text-[12px] opacity-80">{reason}</p>
     </div>
   );
 }

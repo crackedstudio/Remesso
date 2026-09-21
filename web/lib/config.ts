@@ -84,8 +84,22 @@ export const CNGN_REDEMPTION_ADDRESS = (
   process.env.NEXT_PUBLIC_CNGN_REDEMPTION_ADDRESS ?? ""
 ).trim() as `0x${string}` | "";
 
+/// Both cNGN rails, off by default.
+///
+/// Paying anyone in naira — into a wallet as cNGN, or into a bank account —
+/// is the part of Remesso with an open regulatory question: instructing naira
+/// payouts to third parties is a money-transmission matter, and the cNGN
+/// account is not verified. Until that is settled the product is stablecoin
+/// only, which needs no cNGN API, no payout partner and no licence question.
+///
+/// Nothing is deleted. The contract still has the rails, the backend still
+/// runs them, and existing schedules of either kind still render everywhere.
+/// This only decides what a sender may newly authorise, and one env var
+/// brings it back: NEXT_PUBLIC_ENABLE_CNGN_RAILS=1.
+export const CNGN_RAILS_ENABLED = process.env.NEXT_PUBLIC_ENABLE_CNGN_RAILS === "1";
+
 export const BANK_PAYOUTS_ENABLED =
-  /^0x[a-fA-F0-9]{40}$/.test(CNGN_REDEMPTION_ADDRESS);
+  CNGN_RAILS_ENABLED && /^0x[a-fA-F0-9]{40}$/.test(CNGN_REDEMPTION_ADDRESS);
 
 export const EXPLORER =
   CHAIN_ID === 42220 ? "https://celoscan.io" : "https://celo-sepolia.blockscout.com";

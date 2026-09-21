@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { isAddress } from "viem";
 import { fetchBanks, verifyAccount, type AccountDetails } from "@/lib/api";
-import { BANK_PAYOUTS_ENABLED, DIRECT_TOKENS, type TokenInfo } from "@/lib/config";
+import { BANK_PAYOUTS_ENABLED, CNGN_RAILS_ENABLED, DIRECT_TOKENS, type TokenInfo } from "@/lib/config";
 import { isMiniPay } from "@/lib/wagmi";
 import type { PayoutKind } from "@/lib/types";
 
@@ -64,32 +64,39 @@ export function RecipientStep({
       </div>
 
       <div>
-        <p className="label">How should they receive it?</p>
-        <div className="grid grid-cols-3 gap-2">
-          <Choice
-            active={value.payoutType === "direct"}
-            onClick={() => set({ payoutType: "direct" })}
-            title="Stablecoin"
-            subtitle="Shows in MiniPay"
-          />
-          <Choice
-            active={value.payoutType === "wallet"}
-            onClick={() => set({ payoutType: "wallet" })}
-            title="cNGN"
-            subtitle="Other wallets"
-          />
-          <Choice
-            active={value.payoutType === "ngn_bank"}
-            onClick={() => BANK_PAYOUTS_ENABLED && set({ payoutType: "ngn_bank" })}
-            disabled={!BANK_PAYOUTS_ENABLED}
-            title="Bank"
-            subtitle={BANK_PAYOUTS_ENABLED ? "Naira account" : "Coming soon"}
-          />
-        </div>
+        {/* With the naira rails off there is one way to be paid, and a picker
+            with a single option is a question that answers itself. The token
+            tiles below are the only choice left, so they carry the heading. */}
+        {CNGN_RAILS_ENABLED && (
+          <>
+            <p className="label">How should they receive it?</p>
+            <div className="grid grid-cols-3 gap-2">
+              <Choice
+                active={value.payoutType === "direct"}
+                onClick={() => set({ payoutType: "direct" })}
+                title="Stablecoin"
+                subtitle="Shows in MiniPay"
+              />
+              <Choice
+                active={value.payoutType === "wallet"}
+                onClick={() => set({ payoutType: "wallet" })}
+                title="cNGN"
+                subtitle="Other wallets"
+              />
+              <Choice
+                active={value.payoutType === "ngn_bank"}
+                onClick={() => BANK_PAYOUTS_ENABLED && set({ payoutType: "ngn_bank" })}
+                disabled={!BANK_PAYOUTS_ENABLED}
+                title="Bank"
+                subtitle={BANK_PAYOUTS_ENABLED ? "Naira account" : "Coming soon"}
+              />
+            </div>
+          </>
+        )}
 
         {value.payoutType === "direct" && (
-          <div className="mt-4">
-            <p className="label">Which one</p>
+          <div className={CNGN_RAILS_ENABLED ? "mt-4" : ""}>
+            <p className="label">What should they receive?</p>
             <div className="grid grid-cols-3 gap-2">
               {DIRECT_TOKENS.map((t) => (
                 <button
@@ -123,7 +130,7 @@ export function RecipientStep({
         {/* The reason is in the README; the sender only needs to know it is
             not them. */}
         {!BANK_PAYOUTS_ENABLED && value.payoutType !== "wallet" && (
-          <p className="hint">Paying straight into a bank account is coming soon.</p>
+          <p className="hint">Paying straight into a naira bank account is coming soon.</p>
         )}
       </div>
 

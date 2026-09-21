@@ -115,6 +115,19 @@ if (!set("SELF_API_KEY")) {
   } else pass("WEB_ORIGIN", env.WEB_ORIGIN);
 }
 
+console.log("\nAssistant (optional)");
+
+if (!set("DEEPSEEK_API_KEY")) {
+  note("DEEPSEEK_API_KEY unset — the describe-in-a-sentence draft is off");
+} else pass("DEEPSEEK_API_KEY", mask("DEEPSEEK_API_KEY"));
+
+// Without it, failure copy falls back to rules-only (which covers every reason
+// the backend writes itself), drafts get no second reading, and the unusual
+// -schedule line never appears. Nothing breaks.
+if (!set("TYPESAFE_API_KEY")) {
+  note("TYPESAFE_API_KEY unset — typed judgments off", "rules still classify known failures");
+} else pass("TYPESAFE_API_KEY", mask("TYPESAFE_API_KEY"));
+
 console.log("\nChain");
 
 const chainId = Number(env.CELO_CHAIN_ID ?? 42220);
