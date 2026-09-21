@@ -1,0 +1,16 @@
+{
+  "version": "1",
+  "name": "remesso-celo",
+  "abis": {
+    "RemessoExecutorV3": { "path": "./abis/RemessoExecutorV3.json" }
+  },
+  "instances": [
+    {
+      "abi": "RemessoExecutorV3",
+      "address": "0xd2e68acd875fb1b3a98dc0d72659910b05e7e08f",
+      "startBlock": 77741897,
+      "chain": "celo"
+    }
+  ],
+  "enableCallHandlers": false
+}

@@ -11,7 +11,7 @@ import { txOverrides } from "@/lib/tx";
 import { executorAbi } from "@/lib/abi";
 import { EXECUTOR_ADDRESS, EXPLORER, CNGN, tokenFor } from "@/lib/config";
 import { supabase } from "@/lib/supabase";
-import { useIsMiniPay, useRunnability, useRuns, useSchedule } from "@/lib/hooks";
+import { useHistory, useIsMiniPay, useRunnability, useSchedule } from "@/lib/hooks";
 import { recipientLabel } from "@/lib/identity";
 import {
   everyLabel,
@@ -37,7 +37,8 @@ export default function ScheduleDetailPage() {
   // attempts, and this page would then say the schedule does not exist while
   // the fetch was still in flight.
   const { data: schedule, isPending, error: loadError, refetch } = useSchedule(id);
-  const { data: runs } = useRuns(id);
+  // Database rows with the chain allowed ahead of them — see `useHistory`.
+  const { data: runs } = useHistory(id, schedule);
   const { data: runnability } = useRunnability(schedule?.onchain_id ?? null);
 
   const [busy, setBusy] = useState<string | null>(null);

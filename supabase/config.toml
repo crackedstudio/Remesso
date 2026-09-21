@@ -1,5 +1,11 @@
 project_id = "engaboljiqudghvzmebq"
 
+# Local stack only (`supabase start`); the hosted project is configured in the
+# dashboard. Anonymous sign-in is what binds a wallet to a session — without
+# it ensureSender() fails with 422 and the whole frontend is inert.
+[auth]
+enable_anonymous_sign_ins = true
+
 # ---------------------------------------------------------------------------
 # Edge Functions
 #

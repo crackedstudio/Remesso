@@ -1,11 +1,13 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { useAccount, useReadContract, useReadContracts, useSimulateContract } from "wagmi";
 import { detectMiniPay } from "./wagmi";
 import { supabase } from "./supabase";
 import { identityStanding } from "./api";
+import { fetchOnchainRuns, goldskyEnabled } from "./goldsky";
+import { mergeHistory } from "./history";
 import { executorAbi, erc20Abi, quoterAbi } from "./abi";
 import {
   CNGN,
@@ -92,6 +94,60 @@ export function useRuns(scheduleId: string) {
       return (data ?? []) as Run[];
     },
   });
+}
+
+/// `RunExecuted` events for one schedule, from the Goldsky subgraph. Polled
+/// hard while a run is expected — the schedule is due, or a row is in flight —
+/// because that is the window a sender is actually watching, and a subgraph
+/// on Celo's 1s blocks is a few seconds behind the chain, not fifteen.
+///
+/// Disabled without `NEXT_PUBLIC_GOLDSKY_SUBGRAPH_URL`; `useHistory` then
+/// renders the database alone.
+export function useOnchainRuns(schedule: Schedule | null | undefined, dbRuns: Run[] | undefined) {
+  const onchainId = schedule?.onchain_id ?? null;
+  const active = schedule?.status === "active";
+  const inflight = dbRuns?.some((r) => ["pending", "swapping"].includes(r.status)) ?? false;
+  // The backend advances `next_run_at` only after the run, so "due" holds from
+  // the moment a run should fire until the database catches up — exactly the
+  // stretch where the chain is ahead and worth asking often.
+  const due =
+    active &&
+    schedule?.next_run_at != null &&
+    Date.parse(schedule.next_run_at) - Date.now() < 60_000;
+
+  return useQuery({
+    queryKey: ["onchain-runs", onchainId],
+    enabled: goldskyEnabled() && onchainId != null,
+    queryFn: ({ signal }) => fetchOnchainRuns(onchainId!, signal),
+    refetchInterval: inflight || due ? 3_000 : active ? 15_000 : false,
+    refetchOnWindowFocus: true,
+  });
+}
+
+/// The history a sender sees: database rows, with the chain allowed to run
+/// ahead of them. The merge itself is `mergeHistory` in history.ts; this is
+/// the polling and cache side.
+export function useHistory(id: string, schedule: Schedule | null | undefined) {
+  const db = useRuns(id);
+  const chain = useOnchainRuns(schedule, db.data);
+  const queryClient = useQueryClient();
+
+  // When the chain shows a run the database has not settled yet, ask the
+  // database again now rather than on its own 15s cadence: the row's
+  // cNGN reference and gas figures arrive with the backend's write.
+  const settledOnchain = chain.data?.length ?? 0;
+  const settledInDb = db.data?.filter((r) => r.tx_hash).length ?? 0;
+  useEffect(() => {
+    if (settledOnchain > settledInDb) {
+      queryClient.invalidateQueries({ queryKey: ["runs", id] });
+    }
+  }, [settledOnchain, settledInDb, queryClient, id]);
+
+  const runs = useMemo(
+    () => mergeHistory(schedule, db.data, chain.data ?? null),
+    [schedule, db.data, chain.data],
+  );
+  return { ...db, data: db.data === undefined ? undefined : runs };
 }
 
 /// The sender's Self verification standing. Optional and gates nothing — it is

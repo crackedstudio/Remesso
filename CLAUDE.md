@@ -22,6 +22,9 @@ deno test --allow-env supabase/functions/_shared/failures.test.ts
 deno test --allow-env --allow-read --allow-write --allow-run --allow-net --allow-sys \
   supabase/functions/_shared/cngn.test.ts
 
+# history merge — how the chain is allowed ahead of the `runs` table in the UI
+deno test --unstable-sloppy-imports web/lib/history.test.ts
+
 # is .env complete and coherent? proves the SSH key by round-tripping it
 deno run --allow-env --allow-read --allow-net scripts/check-env.ts
 
@@ -59,6 +62,7 @@ blast radius grows quietly.
 | executor (hot) | `0x3c754AD31e802D5fA65487f460dED65Aba749Cd1` — cron key, gas only |
 | **retired** | `0xe1a0F916e859624D4edbadA23E4382D327EAf626` — **private key was exposed in a session log. Do not reuse.** |
 | Supabase | `engaboljiqudghvzmebq` |
+| Goldsky subgraph | `remesso-celo-celo/1.0.0` → tag `prod`, project `project_cmt8exmp1z5f401z7gnkohrw9`. Instant subgraph from the V3 ABI, `indexer/`. |
 
 Keys live in `~/.remesso/keys/{owner,executor}.json` and `~/.ssh/cngn_api_key`.
 The contract is immutable: a fix means redeploying and every sender
@@ -222,6 +226,12 @@ told a sender to wait for a retry instead of allowing payments again.
   UI must never render an `ngn_bank` run's `delivered` as a finished state.
 - **The contract is the authority; the database mirrors it.** Anything that
   tells a sender a run will go through reads `runnability()` on-chain.
+- **The Goldsky subgraph is read by the UI only.** `useHistory` lets a
+  `RunExecuted` event settle a row on screen seconds before the backend
+  writes the receipt, and a bank run it settles is `redeeming`, never
+  `delivered`. `execute-due-runs` does not read it; a stale or dead subgraph
+  is a slower history, not a wrong one. Without
+  `NEXT_PUBLIC_GOLDSKY_SUBGRAPH_URL` the history is the database alone.
 - **`destination` is immutable per schedule.** `execute-due-runs` aborts before
   spending gas if cNGN returns an address that doesn't match it.
 - **No cNGN credential reaches the browser.** The frontend talks to route
