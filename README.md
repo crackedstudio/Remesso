@@ -1,12 +1,28 @@
 # Remesso
 
-Automated recurring stablecoin remittances on **Celo**, settling in **cNGN**.
+Automated recurring stablecoin remittances on **Celo**.
 
-A sender authorises a remittance once — recipient, amount, cadence, floor rate.
-It then runs unattended, converting USDT to naira-backed cNGN and delivering
-either to the recipient's wallet or, via the cNGN API, straight to a Nigerian
-bank account. No one holds the sender's keys and no one can move their money
-outside the envelope they signed.
+A sender authorises a remittance once — recipient, amount, cadence, expiry,
+and a floor rate if anything is being converted. It then runs unattended. No
+one holds the sender's keys, and no one can move their money outside the
+envelope they signed: the contract enforces it, not our code.
+
+Today it pays in **stablecoins** — the recipient receives USDT, USDC or cUSD,
+the assets MiniPay actually displays. The naira rails (cNGN to a wallet, or
+through the cNGN API to a Nigerian bank account) are built and tested but
+**switched off in the UI** pending the regulatory work described under
+[Open items](#open-items). Everything about them below still holds; nothing
+about them is reachable by a sender right now.
+
+Three things distinguish it from a scheduled transfer script:
+
+- **The contract is the authority.** A backend key triggers runs and can do
+  nothing else — not redirect, not raise an amount, not outlive an expiry.
+- **It is callable.** An agent, an app or a person can pay a cent over
+  [x402](#being-callable) to move a payment forward, inside the same envelope.
+- **It is a verified agent.** Registered with Self Agent ID against a real
+  passport, so the thing moving money has a proof-of-human binding rather than
+  being an anonymous key.
 
 ---
 
@@ -24,18 +40,25 @@ Nigerian-SEC-regulated naira stablecoin that deployed to Celo in August 2026,
 and its API does the thing Moove's cannot: `redeemAsset` burns cNGN and pays
 naira to an arbitrary bank account.
 
-Everything below was verified on-chain and against live docs on 2026-09-07,
-not taken from marketing pages.
+Everything below was verified on-chain and against live docs, most recently
+2026-09-22.
 
 | | |
 |---|---|
-| RemessoExecutor V2 | `0x218414aD37206fd4cFD6C47947574708DB0e95D2` — live, verified |
+| **RemessoExecutorV3** | `0xd2e68acd875fb1b3a98dc0d72659910b05e7e08f` — **live, runs every schedule today** |
+| RemessoExecutorV4 | `0x288b7cDD10e069eA64D4984c3E5fa0D9c5816009` — deployed 2026-09-22, verified, **unaudited and not yet in use** |
+| RemessoExecutorV2 | `0x218414aD37206fd4cFD6C47947574708DB0e95D2` — superseded |
 | RemessoExecutor V1 | `0xC7eF75fC6283aB3b810fa4dE270F074C47761189` — retired, has known defects |
+| Self Agent ID | token `191`, agent `0x5C3EBb0084233156ba51a5C2dfD42d88d5a74CA6`, registry `0xaC3DF9ABf80d0F5c020C06B04Cced27763355944` |
 | cNGN (Celo mainnet) | `0xF6829D7393dAe24509eb1E52eE8e572e2E271a4f` — **6 decimals** |
-| cNGN (Celo Sepolia) | `0xa188439ccCEe9A6aa0E842f9c17C1b00C7B4dd4D` |
-| USDT (funding asset) | `0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e` — 6 decimals |
+| USDT / USDC / cUSD | `0x48065fbbe…483d5e` 6dp · `0xcebA9300f…C6f33A8B32118C` 6dp · `0x765DE8168…8B1282a` **18dp** |
 | Uniswap SwapRouter02 | `0x5615CDAb10dc425a742d643d949a7F474C01abc4` |
 | cNGN/USDT pool | `0x6519d56eb0a69fc0338657784c783b169b8f7d32` — 0.01% tier |
+
+**V4 is deployed but nothing points at it.** Schedules live in a contract's own
+storage, so moving is a migration, not an upgrade: every sender must approve the
+new address and re-create their schedule. V4 adds a payout asset per schedule,
+`runNow`, and a capped commission — see [V4](#v4-what-changed).
 
 > **Decimals.** cNGN is 6dp. Mento's unrelated `NGNm` is 18dp. Confusing them
 > is a factor of 10¹².
@@ -45,28 +68,29 @@ not taken from marketing pages.
 ## Architecture
 
 ```
-Sender wallet                Supabase                      Celo + cNGN
-─────────────                ────────                      ───────────
-approve(USDT)  ──┐
-createSchedule() ─┴──▶ schedules ◀── pg_cron (*/5)
-                            │
-                            ▼
-                   execute-due-runs ──▶ quote (Quoter)
-                            │        ──▶ liquidity check
-                            │        ──▶ redeemAsset ──▶ cNGN API
-                            │        ──▶ executeRun ──▶ RemessoExecutor
-                            │                              │
-                            │                       swap USDT→cNGN
-                            │                              │
-                            │                     ┌────────┴────────┐
-                            │                     ▼                 ▼
-                            │              recipient wallet   redemption addr
-                            │                                       │
-                   cngn-webhook ◀─── redemption.completed ──────────┘
-                            │
-                            ▼
-                        runs.paid_out
+Sender wallet              Supabase                        Celo
+─────────────              ────────                        ────
+approve(token) ──┐
+createSchedule() ┴──▶ schedules ◀── pg_cron (every minute)
+                          │
+                          ▼
+                 execute-due-runs ──▶ runnability()        ┌─ Direct: forward
+                          │        ──▶ quote + liquidity   │  the funding asset
+                          │        ──▶ executeRun ─────────┤
+                          │                                └─ Swap: USDT → cNGN
+                          ▼                                   (off in the UI)
+                        runs ──▶ history ◀── Goldsky subgraph
+                                                (seconds, not polls)
+
+An agent ──▶ POST /trigger-run ──▶ 402 ──▶ signed USDC ──▶ runNow()  [V4]
+                                            ▲
+                                    x402 facilitator settles, pays gas
 ```
+
+Everything on the money path is deterministic: pg_cron decides *when*,
+`runnability()` decides *whether*, and the contract decides *what*. The parts
+that are not deterministic — the assistant, the identity check — sit at the
+edges and cannot move a cent.
 
 ### The authorisation model
 
@@ -98,22 +122,126 @@ point is the failure mode this schema is shaped to prevent.
 
 ---
 
+## V4: what changed
+
+Deployed 2026-09-22, **unaudited**, and not yet carrying any schedule. Three
+additions, each *pinned into the schedule at consent* so no later owner action
+can reach a remittance somebody already signed:
+
+- **A payout asset per schedule**, from an owner allowlist. The swap rails were
+  hardwired to cNGN at deployment, which made every new corridor a redeploy.
+- **`runNow`** — an early send, callable by the sender or by an address they
+  nominate, bounded by a number of early sends they authorise, a 60-second gap,
+  and every limit they signed. Default is zero: a V4 schedule behaves exactly
+  like a V3 one unless its sender opts in.
+- **A commission**, in basis points, capped at `MAX_FEE_BPS = 50` in code. The
+  floor is measured against the *net* amount, because a floor is a rate —
+  charging it on the gross would tighten the sender's floor by the fee.
+
+54 tests across the four contract suites. Most of the V4 ones are the same shape
+twice: the owner changes a setting, and a schedule already authorised does not
+move.
+
+## Being callable
+
+`trigger-run` sells one early send over **x402**. An agent POSTs a schedule id,
+gets a `402` carrying the exact price, retries with a signed USDC authorisation,
+and one run fires ahead of its cadence. No account and no API key — the payment
+is the authentication, which is why `verify_jwt = false` on that function.
+
+The caller buys **timing and nothing else**. Destination, amount, asset, floor,
+run cap and expiry were fixed when the sender signed, and `runNow` re-checks
+every one on-chain. A schedule whose sender never nominated our executor is
+refused with `403` before any price is quoted — nobody should pay to discover
+that.
+
+Order is **verify → run → settle**: a run that reverts charges nobody, and a
+settlement that fails after a successful run is logged as our loss rather than
+retried against a caller who already got what they paid for.
+
+Proven on mainnet 2026-09-22: one request moved 0.01 USDC to the treasury and
+0.1 USDT to a recipient
+([run](https://celoscan.io/tx/0x630e46810088704a7d43d2cfb8d545f7c7a85ee3bde6e0658e814eeb70377e98),
+[settlement](https://celoscan.io/tx/0xeabbf0556ad80a92981ce49298765e5b00d74945bbb21964a19b8d5627b7af9d)).
+`scripts/x402-buy.ts` is the buyer half, if you want to try it.
+
+> The facilitator advertises x402 **v1 under network `celo`** and **v2 under
+> `eip155:42220`**. Pairing a version with the other name is rejected as
+> `unsupported_scheme`, which reads like a scheme problem and is a naming one.
+
+## Identity
+
+Two separate things, both optional to the money path:
+
+- **Senders** can verify with [Self](https://self.xyz) from the home screen: a
+  Pre-KYC flow (OFAC screening, 18+) proved from a passport, zero-knowledge, no
+  personal data stored. It **gates nothing** — that was a decision, not an
+  omission. Making it a gate means a check in `execute-due-runs`.
+- **Remesso itself** is registered as a Self Agent ID (token `191`), soulbound
+  to the cold owner wallet. That is what makes the agent sybil-resistant rather
+  than an anonymous key, and it is the Work-tier requirement for Celo's Agent
+  Visa.
+
+MiniPay cannot open the Self app directly — its webview blocks the handoff and
+falls through to the App Store, losing the request. The app therefore asks the
+sender to copy the link into Chrome or Safari. Verified on device.
+
+## The assistant layer
+
+Two providers, neither of which can move money.
+
+**DeepSeek** turns a sentence into a draft schedule the sender edits and signs.
+**TypeSafe (Jev)** answers typed questions — a label and a probability, never
+prose — and does three jobs: classifying a failure reason, flagging fields a
+draft read ambiguously, and scoring how unusual a schedule is before it is
+signed.
+
+The rule that matters: **no model writes the words a sender reads about a
+payment.** `classify_run` returns one of our categories and `web/lib/failures.ts`
+holds the sentence. Reasons the backend writes itself are matched by regex
+first; Jev is asked only about the tail, and only above 0.6 confidence.
+
+## Attribution
+
+Every transaction Remesso causes carries the Celo attribution suffix
+(ERC-8021, code `remesso`) — the executor's runs and each wallet write a sender
+signs. Celo's reward distribution reads this data and **untagged transactions
+cannot be claimed retroactively**. First tagged transaction: 2026-09-22.
+
+## The indexer
+
+A Goldsky instant subgraph over the executor gives the UI a run within seconds
+of its block, instead of waiting for the backend write plus a 15-second poll.
+It is advisory: `web/lib/history.ts` merges it with the `runs` table, and
+without it the history is simply the database. See `indexer/README.md`.
+
 ## Layout
 
 ```
-contracts/          Foundry. RemessoExecutor + 17 tests.
+contracts/          Foundry. V1-V4 + 54 tests.
+indexer/            Goldsky instant subgraph over the executor (see its README).
+scripts/
+  check-env.ts      Is .env complete and coherent? Proves the SSH key.
+  x402-buy.ts       The buyer half of trigger-run: quote, sign, pay, call.
+  e2e-agent-test.ts Local end-to-end run against a funded test wallet.
 supabase/
   migrations/       Schema, RLS, pg_cron triggers.
   functions/
-    _shared/        Config, cNGN client, Celo/viem helpers, crypto tests.
+    _shared/        Config, cNGN client, Celo/viem, Self, Jev, x402,
+                    attribution, failure classification — with tests.
     execute-due-runs/       The executor loop.
+    trigger-run/            Paid early send over x402 (no JWT; payment is auth).
+    self-verify/            Starts an identity check, reports where it stands.
+    self-webhook/           Self results (Svix-signed; retries, unlike cNGN).
+    ai-assist/              Draft a schedule; classify a failure; score a risk.
     cngn-webhook/           Redemption settlement (fast path).
     reconcile-redemptions/  Redemption settlement (authoritative path).
     cngn-proxy/             The frontend's only route to the cNGN API.
     balance-poller/         Funding + liquidity pre-flight warnings.
 web/                Next.js sender app. MiniPay-first, wagmi + viem.
-  app/api/cngn/     Server-only handlers; forward to cngn-proxy, cache banks.
-  lib/              Config, ABI, hooks, formatting.
+  app/api/          Server-only handlers; forward to the Edge Functions.
+  lib/              Config, ABI, hooks, formatting, failure copy, allowance
+                    maths, attribution, subgraph reads.
 ```
 
 ## Getting started
@@ -123,17 +251,36 @@ cp .env.example .env          # fill in secrets; never commit this
 
 cd contracts
 forge install                 # forge-std + openzeppelin
-forge test                    # 17 passing
+forge test                    # 54 passing across V1-V4
 
 # Deploy to testnet FIRST and run a full schedule end to end there.
 DEPLOYER_PRIVATE_KEY=0x... EXECUTOR_ADDRESS=0x... \
-  forge script script/Deploy.s.sol:Deploy --rpc-url celo_sepolia --broadcast
+  forge script script/DeployV4.s.sol:DeployV4 --rpc-url celo_sepolia --broadcast
 
 cd ..
 supabase db push
-supabase functions deploy execute-due-runs cngn-webhook balance-poller
-supabase secrets set --env-file .env
+supabase functions deploy execute-due-runs cngn-webhook reconcile-redemptions \
+  cngn-proxy balance-poller ai-assist self-verify self-webhook trigger-run
+supabase secrets set --env-file .env.functions
 ```
+
+`.env.functions`, not `.env`: Supabase injects `SUPABASE_URL`, `SUPABASE_ANON_KEY`
+and `SUPABASE_SERVICE_ROLE_KEY` itself and rejects them as reserved, failing the
+whole command. `TESTING_*` is excluded too — those hold a funded wallet key used
+only by the local e2e script, and shipping a spendable key into a deployed
+environment for no reason is how blast radius grows quietly.
+
+```bash
+grep -vE '^(SUPABASE_(URL|ANON_KEY|SERVICE_ROLE_KEY)|TESTING_)' .env \
+  | grep -E '^[A-Z0-9_]+=' > .env.functions
+```
+
+Everything optional degrades to silence rather than an error. Without
+`DEEPSEEK_API_KEY` there is no draft-from-a-sentence; without
+`TYPESAFE_API_KEY` failures are still classified by rules; without `SELF_*`
+the verify card never appears; without `X402_*` paid triggering answers 503;
+without `NEXT_PUBLIC_GOLDSKY_SUBGRAPH_URL` the history is the database alone.
+`scripts/check-env.ts` says which of these you have.
 
 Set the cron vault secrets once, so the service-role key never sits in a cron
 definition in plain text:
@@ -358,60 +505,49 @@ List blocks everything rather than allowing everything.
 
 ## Open items
 
-- **Regulatory posture — unresolved and blocking for launch.** `redeemAsset`
-  puts Remesso in the business of instructing naira payouts to third parties.
-  That is a money-transmission question, and it needs a Nigerian fintech lawyer
-  before this goes near real senders, not after.
-- **BANK PAYOUTS CANNOT WORK ON THE DEPLOYED CONTRACT.** Security review
-  2026-09-14, verified on mainnet: cNGN only burns — its signal to pay naira —
-  when `isInternalUserWhitelisted(to) && isExternalSenderWhitelisted(msg.sender)`.
-  A Uniswap swap makes the **pool** the transferor, and
-  `isExternalSenderWhitelisted` is `false` for the pool, the router and the
-  executor. So a bank run would debit the sender, emit `RunExecuted`, pass both
-  slippage guards, and never pay naira. `RemessoExecutorV2` fixes this by
-  swapping to itself and forwarding with an explicit `safeTransfer`, making one
-  whitelistable address the sender-of-record. **Until V2 is deployed AND that
-  address is whitelisted by cNGN, do not enable bank payouts.**
-- ~~Bank-payout destination — still the sharpest technical unknown.~~ Largely
-  moot: whether the redemption address is stable no longer matters while a pool
-  cannot trigger a redemption at all. Original note follows.
-  `redeemAsset` returns a deposit address *per redemption*, while the contract
-  fixes `destination` at authorisation. If that address rotates, an `ngn_bank`
-  schedule delivers cNGN somewhere the redemption is not watching and the naira
-  never arrives. Two things now guard this rather than one comment:
-  `execute-due-runs` compares the address cNGN returns against the sender's
-  on-chain destination and aborts the run *before spending gas* if they differ,
-  and the frontend hides bank payouts entirely unless
-  `NEXT_PUBLIC_CNGN_REDEMPTION_ADDRESS` is set. **Confirm stability with cNGN
-  before mainnet.** If it does rotate, the envelope needs a sender-approved
-  allowlist instead of a single immutable address.
-- ~~**cNGN's Celo support is unconfirmed.**~~ **Resolved 2026-09-10:** cNGN
-  confirmed *"Celo redemption is supported."* Their `/networks` documentation
-  showing only Base and Polygon is an abbreviated example, not a limit.
-  `assertCeloSupported()` still runs as a preflight.
-- **Sender identity is a claim, not a proof.** MiniPay does not support message
-  signing, so SIWE is unavailable to most of this audience and the app binds a
-  wallet to an anonymous Supabase session. This does not weaken the money path —
-  the contract checks `msg.sender` for pause and cancel, and nothing in the
-  database can move funds — but `senders.wallet_address` is first-come, so an
-  address can be squatted. The fix, once a signing path exists, is to verify
-  ownership from `schedulesOf(address)` and the authorising transaction.
+- **Regulatory posture — unresolved, and the reason the naira rails are off.**
+  `redeemAsset` puts Remesso in the business of instructing naira payouts to
+  third parties. That is a money-transmission question and it needs a Nigerian
+  fintech lawyer before it goes near real senders. Until then the product ships
+  **stablecoin-only** (`NEXT_PUBLIC_ENABLE_CNGN_RAILS` is not `"1"`), which
+  needs no payout partner, no cNGN API and no licence answer. Nothing is
+  deleted: the contract keeps all three rails and existing schedules of any
+  kind still render.
+- **V4 is unaudited.** It is deployed and was exercised once on mainnet, but no
+  audit has been run, and it holds spending authority the moment a sender
+  approves it. Audit before migrating anyone.
+- **The V3 → V4 migration is not started.** The app, the executor and every
+  live schedule are on V3. Moving means each sender approves the new address
+  and re-creates their schedule; there is no carry-over.
+- ~~**BANK PAYOUTS CANNOT WORK ON THE DEPLOYED CONTRACT.**~~ **Fixed in V2 and
+  deployed in V3.** The original defect, found in the 2026-09-14 review: cNGN
+  only burns when `isExternalSenderWhitelisted(msg.sender)`, and a Uniswap swap
+  makes the **pool** the transferor, so a bank run would debit the sender, emit
+  `RunExecuted`, pass both slippage guards and never pay naira. V2 onwards swaps
+  to itself and forwards with an explicit `safeTransfer`, making one
+  whitelistable address the sender-of-record. **cNGN must still whitelist the
+  live executor address** before a transfer from it will burn — and a new
+  deployment is a new sender-of-record, so V4 needs its own whitelisting.
+- **Redemption-address stability — unanswered by cNGN.** `redeemAsset` returns
+  a deposit address *per redemption*, while the contract fixes `destination` at
+  authorisation. Two guards exist: `execute-due-runs` compares the address cNGN
+  returns against the on-chain destination and aborts *before spending gas* if
+  they differ, and the UI hides bank payouts entirely. If it does rotate, the
+  envelope needs a sender-approved allowlist rather than one address.
+- **cNGN account is not verified.** ₦100,000 plus KYB, and `redeemAsset` does
+  not work until it completes.
 - **The IP whitelist needs a fixed-IP proxy standing up.** cNGN will not
   whitelist a CIDR, and Supabase egresses from the whole AWS `eu-central-1`
   pool — measured: 8 consecutive calls, 8 distinct IPs.
-- **cNGN account is not verified.** ₦100,000 one-time fee plus KYB documents,
-  and `redeemAsset` does not work until it completes.
-- ~~Webhooks are not yet configurable.~~ **Resolved 2026-09-14:** the live
-  endpoint, a cNGN-generated signing secret, and subscriptions to
-  `redemption.completed` and `transaction.failed` are configured. Note the
-  secret is **generated by cNGN**, not chosen by you. Verified end-to-end on our
-  side: a correctly signed POST returns 200 and records `signature_ok = true`,
-  a wrong signature returns 401, and a replay is absorbed by the idempotency
-  index. Only a real delivery proves both sides hold the same secret — if
-  `signature_ok` is ever `false` on a genuine event, regenerate and re-save.
-
-  `reconcile-redemptions` stays at `*/5` rather than being relaxed now that the
-  webhook carries the fast path. The sweep calls cNGN only for runs actually
-  stuck in `redeeming`, so an idle tick costs zero API requests: a tight
-  cadence buys faster recovery from a missed delivery and costs nothing.
+- **Sender identity is a claim, not a proof.** MiniPay does not support message
+  signing, so SIWE is unavailable and the app binds a wallet to an anonymous
+  Supabase session. This does not weaken the money path — the contract checks
+  `msg.sender`, and nothing in the database can move funds — but
+  `senders.wallet_address` is first-come, so an address can be squatted. Self
+  verification proves a *human*, not wallet ownership; it does not close this.
+- **The `remesso` attribution code is not yet credited** on Celo's dashboard.
+  Tagging works regardless; crediting is a registry step with the Celo team.
+- **Not yet listed in MiniPay.** Listing pins the exact contract addresses,
+  method signatures and URLs submitted — so submit after the V4 migration, not
+  before, or every call breaks in production on a build that works elsewhere.
 - Recipient notifications — one seam left in `balance-poller`.
