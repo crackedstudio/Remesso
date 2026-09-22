@@ -367,7 +367,7 @@ function RunRow({
               {relativeTime(run.started_at)} · #{run.attempt}
             </p>
           </div>
-          <RunPill status={run.status} isBank={isBank} />
+          <RunPill status={run.status} isBank={isBank} converts={converts} />
         </div>
 
         {/* The distinction this whole design exists to preserve: the swap landing

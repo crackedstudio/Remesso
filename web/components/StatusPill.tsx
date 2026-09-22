@@ -30,14 +30,20 @@ const SCHEDULE_STYLES: Record<ScheduleStatus, { label: string; tone: Tone }> = {
   completed: { label: "Completed", tone: "neutral" },
 };
 
-export function RunPill({ status, isBank }: { status: RunStatus; isBank: boolean }) {
+export function RunPill(
+  { status, isBank, converts = true }: { status: RunStatus; isBank: boolean; converts?: boolean },
+) {
   // The distinction the whole schema exists to protect: for a bank payout,
   // `delivered` means cNGN reached the redemption address, not that anyone has
   // naira. Never let that render as a completed state.
-  const s =
-    isBank && status === "delivered"
-      ? { label: "Awaiting bank", tone: "working" as Tone }
-      : RUN_STYLES[status];
+  const s = isBank && status === "delivered"
+    ? { label: "Awaiting bank", tone: "working" as Tone }
+    // `swapping` is one status for both rails, and a Direct run converts
+    // nothing — the recipient gets the asset the sender funded. Telling them
+    // their money is being converted describes a trade that never happens.
+    : !converts && status === "swapping"
+    ? { label: "Sending", tone: "working" as Tone }
+    : RUN_STYLES[status];
   return <Pill label={s.label} tone={s.tone} />;
 }
 
