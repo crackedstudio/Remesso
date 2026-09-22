@@ -10,7 +10,7 @@ import { SchedulePill } from "@/components/StatusPill";
 import { IdentityCard } from "@/components/IdentityCard";
 import { ReapproveButton, useApprovalCover } from "@/components/Reapprove";
 import { ActionBar, Amount, MINIPAY_DEPOSIT_URL, Skeleton } from "@/components/ui";
-import { isConfigured, isCurrentExecutor, tokenFor, USDT, type TokenInfo } from "@/lib/config";
+import { isConfigured, tokenFor, USDT, type TokenInfo } from "@/lib/config";
 import { one, type Schedule } from "@/lib/types";
 
 export default function SchedulesPage() {
@@ -246,9 +246,7 @@ function ScheduleCard({ schedule }: { schedule: Schedule }) {
             <span>{intervalLabel(schedule.interval_seconds).toLowerCase()}</span>
           </p>
           <p className="mt-0.5 truncate text-[13px] text-ink-3">
-            {!isCurrentExecutor(schedule.executor_address)
-              ? "On an older version — set it up again"
-              : schedule.status === "active"
+            {schedule.status === "active"
               ? `Next ${relativeTime(schedule.next_run_at)}`
               : isBank
                 ? `${recipient?.account_name ?? "Bank account"} · ${recipient?.account_number ?? ""}`

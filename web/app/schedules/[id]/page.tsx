@@ -10,7 +10,7 @@ import { waitForTransactionReceipt } from "wagmi/actions";
 import { wagmiConfig } from "@/lib/wagmi";
 import { txOverrides } from "@/lib/tx";
 import { executorAbi } from "@/lib/abi";
-import { EXECUTOR_ADDRESS, EXPLORER, CNGN, isCurrentExecutor, tokenFor } from "@/lib/config";
+import { EXECUTOR_ADDRESS, EXPLORER, CNGN, tokenFor } from "@/lib/config";
 import { supabase } from "@/lib/supabase";
 import { useHistory, useIsMiniPay, useRunnability, useSchedule, useTimeUntil } from "@/lib/hooks";
 import { recipientLabel } from "@/lib/identity";
@@ -190,19 +190,6 @@ export default function ScheduleDetailPage() {
           </Row>
         )}
       </dl>
-
-      {!isCurrentExecutor(schedule.executor_address) && (
-        <div className="notice-warn mt-4">
-          <p className="font-medium">This schedule is on an older version of Remesso</p>
-          <p className="mt-0.5">
-            It can&rsquo;t run any more, and no money will move from it. Your funds were
-            never held by it — set the same schedule up again to carry on.
-          </p>
-          <Link href="/schedules/new" className="btn-soft btn-sm mt-3 bg-surface">
-            Set it up again
-          </Link>
-        </div>
-      )}
 
       {/* The contract's own answer, not our mirror of it. If these disagree, the
           contract is right and the sender needs to know which one is blocking. */}
