@@ -547,7 +547,4 @@ List blocks everything rather than allowing everything.
   verification proves a *human*, not wallet ownership; it does not close this.
 - **The `remesso` attribution code is not yet credited** on Celo's dashboard.
   Tagging works regardless; crediting is a registry step with the Celo team.
-- **Not yet listed in MiniPay.** Listing pins the exact contract addresses,
-  method signatures and URLs submitted — so submit after the V4 migration, not
-  before, or every call breaks in production on a build that works elsewhere.
 - Recipient notifications — one seam left in `balance-poller`.
