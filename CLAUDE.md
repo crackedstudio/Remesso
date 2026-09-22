@@ -263,6 +263,24 @@ sender did not nominate this executor — nobody should pay to learn that.
 forno can still answer from a block behind. Seen on 2026-09-22 right after a
 cancel. It self-corrects within seconds.
 
+## Agent identity
+
+Registered with Self Agent ID on 2026-09-22, from a real passport:
+
+| | |
+|---|---|
+| agent id | `191` |
+| agent address | `0x5C3EBb0084233156ba51a5C2dfD42d88d5a74CA6` |
+| human owner | `0xcDEA4Cc4191Ec9A5d8fD1a6B17e3F4C84E993Ae2` (cold) |
+| registry | `0xaC3DF9ABf80d0F5c020C06B04Cced27763355944` — soulbound, `ownerOf(191)` confirms |
+
+It proves a unique human stands behind the agent and discloses nothing about
+them: the returned credentials are empty bytes, and the OFAC flags are false.
+That is the sybil-resistance layer the Celo Agent Visa Work tier asks for.
+
+The agent address is an identity, not a key that moves money. Runs are still
+signed by the executor (`0x3c754AD3…49Cd1`) and bounded by the contract.
+
 ## Invariants — do not break
 
 - **`delivered` is not `paid_out`.** For a bank payout, the swap settling means

@@ -13,7 +13,6 @@
 ///
 /// Verify before the work, settle after it. A caller whose run reverts should
 /// not be charged, and a caller who is charged should have had their run.
-import { CELO } from "./config.ts";
 
 export const X402 = {
   get base(): string {
@@ -41,8 +40,13 @@ export const X402 = {
 /// and needs no native CELO.
 const USDC: `0x${string}` = "0xcebA9300f2b948710d2653dD7B07f33A8B32118C";
 
-/// CAIP-2, which is how x402 names a chain.
-const NETWORK = `eip155:${CELO.chainId}`;
+/// How x402 v1 names this chain: the short name, not CAIP-2.
+///
+/// The facilitator advertises both — `{x402Version: 1, network: "celo"}` and
+/// `{x402Version: 2, network: "eip155:42220"}` — and pairing a version with
+/// the other version's name is rejected as `unsupported_scheme`, which reads
+/// like a scheme problem and is really a naming one. Seen 2026-09-22.
+const NETWORK = Deno.env.get("X402_NETWORK") ?? "celo";
 
 export type PaymentRequirements = {
   scheme: "exact";
@@ -54,6 +58,7 @@ export type PaymentRequirements = {
   maxAmountRequired: string;
   asset: string;
   maxTimeoutSeconds: number;
+  outputSchema: Record<string, unknown>;
   extra: { name: string; version: string };
 };
 
@@ -70,6 +75,9 @@ export function requirements(resource: string, description: string): PaymentRequ
     // Long enough for a signature round trip, short enough that a stale
     // authorisation cannot be replayed against a later price.
     maxTimeoutSeconds: 60,
+    // Part of the V1 requirements shape. Empty is legal; absent is not, for
+    // verifiers that validate the object before looking at the signature.
+    outputSchema: {},
     // The EIP-712 domain the payer signs against. Getting this wrong makes
     // every signature invalid for reasons the payer cannot see.
     extra: { name: "USDC", version: "2" },
@@ -97,6 +105,13 @@ async function facilitator(path: string, body: unknown): Promise<Record<string, 
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       console.error("x402", path, res.status, JSON.stringify(json).slice(0, 300));
+      // A rejected payment is a 400 carrying `invalidReason` — the useful
+      // half of the answer. Discarding it as "unavailable" tells a payer
+      // nothing, when the facilitator just told them their balance is short.
+      const judged = json as { isValid?: unknown; invalidReason?: unknown; success?: unknown };
+      if (judged.isValid !== undefined || judged.success !== undefined) {
+        return judged as Record<string, unknown>;
+      }
       return null;
     }
     return json as Record<string, unknown>;
