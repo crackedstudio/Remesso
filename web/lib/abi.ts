@@ -35,6 +35,22 @@ export const executorAbi = [
   { type: "error", name: "RenounceDisabled", inputs: [] },
   { type: "error", name: "TokenNotAllowed", inputs: [] },
   { type: "error", name: "WrongTokenForPayoutType", inputs: [] },
+  { type: "error", name: "SameToken", inputs: [] },
+  { type: "error", name: "NotTrigger", inputs: [] },
+  { type: "error", name: "NoTriggersLeft", inputs: [] },
+  {
+    type: "error",
+    name: "TriggeredTooSoon",
+    inputs: [{ name: "nextAllowed", type: "uint64" }],
+  },
+  {
+    type: "error",
+    name: "FeeTooHigh",
+    inputs: [
+      { name: "provided", type: "uint16" },
+      { name: "max", type: "uint16" },
+    ],
+  },
 
   {
     type: "function",
@@ -50,6 +66,13 @@ export const executorAbi = [
       { name: "firstRunAt", type: "uint64" },
       { name: "payoutType", type: "uint8" },
       { name: "token", type: "address" },
+      // V4. `payoutToken` is what the recipient is paid in on the swap rails
+      // and is ignored on Direct; `trigger` and `triggersLeft` are the
+      // sender's grant of early sends, and zero means the schedule only ever
+      // runs on its own cadence.
+      { name: "payoutToken", type: "address" },
+      { name: "trigger", type: "address" },
+      { name: "triggersLeft", type: "uint16" },
     ],
     outputs: [{ name: "id", type: "uint256" }],
   },
@@ -68,6 +91,24 @@ export const executorAbi = [
     name: "cancelSchedule",
     stateMutability: "nonpayable",
     inputs: [{ name: "id", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "feeBps",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint16" }],
+  },
+  {
+    type: "function",
+    name: "setTrigger",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "id", type: "uint256" },
+      { name: "trigger", type: "address" },
+      { name: "triggersLeft", type: "uint16" },
+    ],
     outputs: [],
   },
   {
@@ -94,11 +135,17 @@ export const executorAbi = [
           { name: "runsExecuted", type: "uint32" },
           { name: "amountIn", type: "uint128" },
           { name: "minRateE6", type: "uint96" },
+          { name: "poolFee", type: "uint24" },
           { name: "expiresAt", type: "uint64" },
           { name: "payoutType", type: "uint8" },
           { name: "active", type: "bool" },
           { name: "cancelled", type: "bool" },
           { name: "token", type: "address" },
+          { name: "tokenOut", type: "address" },
+          { name: "feeBps", type: "uint16" },
+          { name: "lastRunAt", type: "uint64" },
+          { name: "triggersLeft", type: "uint16" },
+          { name: "trigger", type: "address" },
         ],
       },
     ],

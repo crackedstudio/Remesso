@@ -200,9 +200,15 @@ export function useIdentity() {
 /// The contract's own view of whether a schedule can run. This is the authority
 /// — the database mirrors it — so anything that tells a sender "your next
 /// payment will go through" reads from here, not from a row.
-export function useRunnability(onchainId: Numeric | null) {
+export function useRunnability(onchainId: Numeric | null, executor?: string | null) {
+  // The schedule's own contract, not the one this build creates against. After
+  // a migration both exist, ids collide across deployments, and asking the new
+  // contract about an old id answers about somebody else's schedule.
+  const address = (executor && /^0x[a-fA-F0-9]{40}$/.test(executor)
+    ? (executor as `0x${string}`)
+    : EXECUTOR_ADDRESS);
   return useReadContract({
-    address: EXECUTOR_ADDRESS,
+    address,
     abi: executorAbi,
     functionName: "runnability",
     args: onchainId ? [BigInt(onchainId)] : undefined,
@@ -217,6 +223,21 @@ export function useRunnability(onchainId: Numeric | null) {
         nextRunAt: r[4],
       }),
     },
+  });
+}
+
+/// The commission a schedule created right now would be pinned with.
+///
+/// Read live rather than hardcoded: it is an owner setting, capped in the
+/// contract, and a review screen that quotes a stale rate is telling the
+/// sender something the contract will not do. Undefined while loading, and
+/// treated as zero — never as a guess.
+export function useFeeBps() {
+  return useReadContract({
+    address: EXECUTOR_ADDRESS,
+    abi: executorAbi,
+    functionName: "feeBps",
+    query: { enabled: isConfigured(), staleTime: 5 * 60_000, retry: false },
   });
 }
 

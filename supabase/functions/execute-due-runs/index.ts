@@ -83,7 +83,13 @@ Deno.serve(async () => {
     return json({ error: (e as Error).message }, 500);
   }
 
-  const { data: due, error } = await db.rpc("due_schedules", { p_limit: BATCH });
+  // Scoped to the contract this executor is configured with. Schedule ids are
+  // per-contract and every deployment numbers from 1, so an unscoped query
+  // would hand V4 a V3 row's id and run a different sender's schedule.
+  const { data: due, error } = await db.rpc("due_schedules", {
+    p_limit: BATCH,
+    p_executor: CELO.executor,
+  });
   if (error) return json({ error: error.message }, 500);
 
   const schedules = (due ?? []) as DueSchedule[];

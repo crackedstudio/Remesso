@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,7 +10,7 @@ import { waitForTransactionReceipt } from "wagmi/actions";
 import { wagmiConfig } from "@/lib/wagmi";
 import { txOverrides } from "@/lib/tx";
 import { executorAbi } from "@/lib/abi";
-import { EXECUTOR_ADDRESS, EXPLORER, CNGN, tokenFor } from "@/lib/config";
+import { EXECUTOR_ADDRESS, EXPLORER, CNGN, isCurrentExecutor, tokenFor } from "@/lib/config";
 import { supabase } from "@/lib/supabase";
 import { useHistory, useIsMiniPay, useRunnability, useSchedule, useTimeUntil } from "@/lib/hooks";
 import { recipientLabel } from "@/lib/identity";
@@ -40,7 +41,10 @@ export default function ScheduleDetailPage() {
   const { data: schedule, isPending, error: loadError, refetch } = useSchedule(id);
   // Database rows with the chain allowed ahead of them — see `useHistory`.
   const { data: runs } = useHistory(id, schedule);
-  const { data: runnability } = useRunnability(schedule?.onchain_id ?? null);
+  const { data: runnability } = useRunnability(
+    schedule?.onchain_id ?? null,
+    schedule?.executor_address,
+  );
 
   // The contract's own next-run time when it has answered, the database mirror
   // until then. Both are advisory here — this is a clock, not a promise.
@@ -186,6 +190,19 @@ export default function ScheduleDetailPage() {
           </Row>
         )}
       </dl>
+
+      {!isCurrentExecutor(schedule.executor_address) && (
+        <div className="notice-warn mt-4">
+          <p className="font-medium">This schedule is on an older version of Remesso</p>
+          <p className="mt-0.5">
+            It can&rsquo;t run any more, and no money will move from it. Your funds were
+            never held by it — set the same schedule up again to carry on.
+          </p>
+          <Link href="/schedules/new" className="btn-soft btn-sm mt-3 bg-surface">
+            Set it up again
+          </Link>
+        </div>
+      )}
 
       {/* The contract's own answer, not our mirror of it. If these disagree, the
           contract is right and the sender needs to know which one is blocking. */}

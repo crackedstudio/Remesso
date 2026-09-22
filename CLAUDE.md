@@ -55,7 +55,8 @@ blast radius grows quietly.
 
 | | |
 |---|---|
-| `RemessoExecutorV3` | `0xd2e68acd875fb1b3a98dc0d72659910b05e7e08f` — **live**, verified. Adds the Direct (no-swap) rail. |
+| `RemessoExecutorV4` | `0x288b7cDD10e069eA64D4984c3E5fa0D9c5816009` — **live and in use since 2026-09-22**, verified, **unaudited**. Payout asset per schedule, `runNow`, capped commission. |
+| `RemessoExecutorV3` | `0xd2e68acd875fb1b3a98dc0d72659910b05e7e08f` — superseded 2026-09-22. Schedules created against it still exist on-chain and can never run again: the executor is scoped to one contract. |
 | `RemessoExecutorV2` | `0x218414aD37206fd4cFD6C47947574708DB0e95D2` — superseded 2026-09-17 |
 | `RemessoExecutor` V1 | `0xC7eF75fC6283aB3b810fa4dE270F074C47761189` — retired 2026-09-15, schedule #1 cancelled, allowance revoked. Has the defects listed below; do not point anything at it. |
 | owner | `0xcDEA4Cc4191Ec9A5d8fD1a6B17e3F4C84E993Ae2` — cold, deploy only |
@@ -239,10 +240,17 @@ own output — one wrong byte and the indexer sees nothing, silently.
 
 ## V4 and paid triggering
 
-`RemessoExecutorV4` is deployed at `0x288b7cDD10e069eA64D4984c3E5fa0D9c5816009`
-(verified, 2026-09-22) and **nothing points at it**. V3 still runs every live
-schedule; moving means every sender re-approves and re-creates. V4 is not
-audited.
+`RemessoExecutorV4` at `0x288b7cDD10e069eA64D4984c3E5fa0D9c5816009` (verified,
+**unaudited**) is what the app creates against and the executor runs, since
+2026-09-22.
+
+**Schedules do not migrate.** They live in a contract's own storage, so every
+V3 schedule is still on-chain, still owned by its sender, and will never run
+again — `due_schedules` takes the executor address and only returns rows
+authorised against it. Ids collide across deployments (each numbers from 1), so
+that filter is what stops V4 being asked about a V3 id and running a different
+sender's schedule. The UI says so on any schedule whose `executor_address` is
+not the current one, and a sender re-approves and re-creates to carry on.
 
 What it adds, all pinned at consent so no owner action reaches a signed
 schedule: a payout asset per schedule from an allowlist, a commission (25bps,

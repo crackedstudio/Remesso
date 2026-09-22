@@ -30,6 +30,10 @@ export type Schedule = {
   sender_id: string;
   recipient_id: string;
   onchain_id: Numeric | null;
+  /// Which executor deployment this schedule lives in. Ids are per-contract,
+  /// so reading a V3 schedule's id against V4 returns a different sender's
+  /// schedule — see the 20260915 migration.
+  executor_address?: string | null;
   chain_id: number;
   authorized_tx_hash: string | null;
   amount_in: Numeric;

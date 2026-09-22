@@ -104,6 +104,18 @@ export const BANK_PAYOUTS_ENABLED =
 export const EXPLORER =
   CHAIN_ID === 42220 ? "https://celoscan.io" : "https://celo-sepolia.blockscout.com";
 
+/// Does this schedule live in the contract this build runs against?
+///
+/// Schedules cannot be migrated: they live in a contract's own storage, and
+/// ids collide across deployments. So after a migration an older schedule is
+/// still on-chain, still owned by its sender, and permanently un-run — the
+/// executor is scoped to one address and will never pick it up again. The UI
+/// has to say that rather than showing a next-run time that will never come.
+export function isCurrentExecutor(address?: string | null): boolean {
+  if (!address) return true; // pre-dates the column; treat as current
+  return address.toLowerCase() === EXECUTOR_ADDRESS.toLowerCase();
+}
+
 export function isConfigured(): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(EXECUTOR_ADDRESS);
 }

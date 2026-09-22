@@ -11,7 +11,13 @@ import { txOverrides } from "@/lib/tx";
 import { DescribeSchedule, tokenFromSymbol } from "@/components/DescribeSchedule";
 import type { Draft } from "@/lib/ai";
 import { erc20Abi, executorAbi, PayoutType } from "@/lib/abi";
+
+/// V4 takes a payout asset and a trigger grant at consent. Direct converts
+/// nothing, and nobody may trigger a schedule unless its sender says so, so
+/// both default to the zero address.
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 import {
+  CNGN,
   CNGN_REDEMPTION_ADDRESS,
   EXECUTOR_ADDRESS,
   USDT,
@@ -19,7 +25,7 @@ import {
   type TokenInfo,
 } from "@/lib/config";
 import { supabase, ensureSender } from "@/lib/supabase";
-import { useAllowance, useMarketRate, useUsdtBalance } from "@/lib/hooks";
+import { useAllowance, useFeeBps, useMarketRate, useUsdtBalance } from "@/lib/hooks";
 import { everyLabel, formatUnits, rateToNairaPerUsd, spanLabel } from "@/lib/format";
 import {
   RecipientStep,
@@ -65,6 +71,7 @@ export default function NewSchedulePage() {
   const converts = recipient.payoutType !== "direct";
   const amountIn = amountInUnits(terms, fundingToken.decimals);
   const { data: allowance } = useAllowance(fundingToken.address);
+  const { data: feeBps } = useFeeBps();
   const { data: balance } = useUsdtBalance(fundingToken.address);
   const market = useMarketRate(amountIn ?? 0n);
 
@@ -249,6 +256,14 @@ export default function NewSchedulePage() {
               ? PayoutType.Wallet
               : PayoutType.BankRedemption,
           fundingToken.address,
+          // V4 consent values. The swap rails pay out in cNGN; Direct converts
+          // nothing and the contract zeroes this itself.
+          recipient.payoutType === "direct" ? ZERO_ADDRESS : CNGN.address,
+          // No early sends. A schedule that can be triggered is a schedule
+          // somebody other than the sender can make pay, so it is opt-in and
+          // there is no UI for it yet — see README, "Being callable".
+          ZERO_ADDRESS,
+          0,
         ],
         ...txOverrides(),
       });
@@ -316,6 +331,7 @@ export default function NewSchedulePage() {
             marketRateE6={market.rateE6}
             requiredAllowance={requiredAllowance}
             allowanceRuns={runs}
+            feeBps={feeBps}
             balance={balance}
             inMiniPay={inMiniPay}
           />
@@ -416,6 +432,7 @@ function Review({
   marketRateE6,
   requiredAllowance,
   allowanceRuns,
+  feeBps,
   balance,
   inMiniPay,
 }: {
@@ -427,6 +444,9 @@ function Review({
   marketRateE6?: bigint;
   requiredAllowance: bigint;
   allowanceRuns: number;
+  /// Undefined while the contract has not answered. Shown only when it has:
+  /// a fee line that guesses is worse than no fee line.
+  feeBps?: number;
   balance?: bigint;
   inMiniPay: boolean;
 }) {
@@ -466,6 +486,16 @@ function Review({
             sub={`${terms.floorPercent}% below today. A run below this is skipped, never forced.`}
           >
             {floorE6 ? `₦${rateToNairaPerUsd(floorE6).toFixed(0)} per USDT` : "—"}
+          </Row>
+        )}
+        {feeBps !== undefined && feeBps > 0 && amountIn !== null && (
+          <Row
+            label="Remesso fee"
+            sub={`${(feeBps / 100).toFixed(2)}% per transfer, fixed for this schedule. They receive ${
+              formatUnits(amountIn - (amountIn * BigInt(feeBps)) / 10_000n, token.decimals)
+            } ${token.symbol}.`}
+          >
+            {formatUnits((amountIn * BigInt(feeBps)) / 10_000n, token.decimals)} {token.symbol}
           </Row>
         )}
         <Row label="Transfers">{terms.maxRuns || "Until you stop it"}</Row>

@@ -45,8 +45,8 @@ Everything below was verified on-chain and against live docs, most recently
 
 | | |
 |---|---|
-| **RemessoExecutorV3** | `0xd2e68acd875fb1b3a98dc0d72659910b05e7e08f` — **live, runs every schedule today** |
-| RemessoExecutorV4 | `0x288b7cDD10e069eA64D4984c3E5fa0D9c5816009` — deployed 2026-09-22, verified, **unaudited and not yet in use** |
+| **RemessoExecutorV4** | `0x288b7cDD10e069eA64D4984c3E5fa0D9c5816009` — **live and in use**, verified, **unaudited** |
+| RemessoExecutorV3 | `0xd2e68acd875fb1b3a98dc0d72659910b05e7e08f` — superseded 2026-09-22; its schedules remain on-chain and cannot run again |
 | RemessoExecutorV2 | `0x218414aD37206fd4cFD6C47947574708DB0e95D2` — superseded |
 | RemessoExecutor V1 | `0xC7eF75fC6283aB3b810fa4dE270F074C47761189` — retired, has known defects |
 | Self Agent ID | token `191`, agent `0x5C3EBb0084233156ba51a5C2dfD42d88d5a74CA6`, registry `0xaC3DF9ABf80d0F5c020C06B04Cced27763355944` |
@@ -55,10 +55,12 @@ Everything below was verified on-chain and against live docs, most recently
 | Uniswap SwapRouter02 | `0x5615CDAb10dc425a742d643d949a7F474C01abc4` |
 | cNGN/USDT pool | `0x6519d56eb0a69fc0338657784c783b169b8f7d32` — 0.01% tier |
 
-**V4 is deployed but nothing points at it.** Schedules live in a contract's own
-storage, so moving is a migration, not an upgrade: every sender must approve the
-new address and re-create their schedule. V4 adds a payout asset per schedule,
-`runNow`, and a capped commission — see [V4](#v4-what-changed).
+**Schedules do not migrate.** They live in a contract's own storage, so every
+V3 schedule is still there, still owned by its sender, and will never run
+again: the executor asks `due_schedules` for rows authorised against the
+contract it is configured with, and ids collide across deployments. A sender
+re-approves the new address and re-creates; the app says so on any schedule
+left behind. See [V4](#v4-what-changed).
 
 > **Decimals.** cNGN is 6dp. Mento's unrelated `NGNm` is 18dp. Confusing them
 > is a factor of 10¹².
@@ -516,9 +518,10 @@ List blocks everything rather than allowing everything.
 - **V4 is unaudited.** It is deployed and was exercised once on mainnet, but no
   audit has been run, and it holds spending authority the moment a sender
   approves it. Audit before migrating anyone.
-- **The V3 → V4 migration is not started.** The app, the executor and every
-  live schedule are on V3. Moving means each sender approves the new address
-  and re-creates their schedule; there is no carry-over.
+- **The V3 → V4 migration is half done.** The app and the executor are on V4 as
+  of 2026-09-22; the schedules authorised against V3 are not, and cannot be —
+  each sender must approve the new address and re-create. No V4 schedule has
+  been created through the app yet.
 - ~~**BANK PAYOUTS CANNOT WORK ON THE DEPLOYED CONTRACT.**~~ **Fixed in V2 and
   deployed in V3.** The original defect, found in the 2026-09-14 review: cNGN
   only burns when `isExternalSenderWhitelisted(msg.sender)`, and a Uniswap swap

@@ -29,14 +29,19 @@ export function walletClient() {
   });
 }
 
+/// V4 shape. A static tuple decodes positionally, so a stale struct silently
+/// reads the wrong field and shifts everything after it — V3 added `poolFee`
+/// and `token`, V4 adds `tokenOut`, `feeBps`, `lastRunAt`, `triggersLeft` and
+/// `trigger`. Only `.destination` and the `active`/`cancelled` pair are read
+/// today, which is exactly why a wrong shape would go unnoticed.
+///
+/// One ABI, because one executor runs at a time: `due_schedules` is scoped to
+/// the configured contract, so a row from an older deployment is never handed
+/// to this client at all.
 export const executorAbi = parseAbi([
   "function executeRun(uint256 id, uint256 amountOutMinimum) returns (uint256)",
   "function runnability(uint256 id) view returns (bool due, bool funded, bool approved, uint256 floor, uint64 nextRunAt)",
-  // V3 shape. `poolFee` (word 9) and `token` (word 14) were added after V2, and
-// a static tuple decodes positionally — omitting them silently reads poolFee
-// as expiresAt and shifts every field after it. Only `.destination` (word 4)
-// is read today, which is why the stale shape never surfaced.
-  "function getSchedule(uint256 id) view returns ((address sender,uint64 interval,uint32 maxRuns,address destination,uint64 nextRunAt,uint32 runsExecuted,uint128 amountIn,uint96 minRateE6,uint24 poolFee,uint64 expiresAt,uint8 payoutType,bool active,bool cancelled,address token))",
+  "function getSchedule(uint256 id) view returns ((address sender,uint64 interval,uint32 maxRuns,address destination,uint64 nextRunAt,uint32 runsExecuted,uint128 amountIn,uint96 minRateE6,uint24 poolFee,uint64 expiresAt,uint8 payoutType,bool active,bool cancelled,address token,address tokenOut,uint16 feeBps,uint64 lastRunAt,uint16 triggersLeft,address trigger))",
   "function paused() view returns (bool)",
 ]);
 
