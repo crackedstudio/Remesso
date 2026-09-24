@@ -22,6 +22,10 @@ web/tsconfig.tsbuildinfo
 .env.local
 .env.local.*
 !web/.env.local.example
+# The Vercel variable list. Documentation, not secrets: the one sensitive-
+# looking value in it, the Supabase anon key, is public by design and guarded
+# by row-level security.
+!web/.env.production.example
 
 # editor
 .vscode/
