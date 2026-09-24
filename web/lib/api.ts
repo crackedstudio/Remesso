@@ -1,17 +1,20 @@
 "use client";
 
-import { supabase } from "./supabase";
+import { ensureSession } from "./supabase";
 
 /// Every cNGN call from the browser goes through our own route handlers, which
 /// forward to the cngn-proxy Edge Function. The browser never sees a cNGN
 /// credential, and cNGN only ever sees one source IP.
 async function authedFetch(path: string, init: RequestInit = {}) {
-  const { data: { session } } = await supabase().auth.getSession();
+  // Establish the session rather than discovering its absence server-side:
+  // this runs on a phone, on a fresh origin, possibly before the wallet has
+  // connected, and "sign in to continue" names a screen that does not exist.
+  const token = await ensureSession();
   const res = await fetch(path, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
   });

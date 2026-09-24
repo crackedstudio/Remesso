@@ -1,6 +1,6 @@
 "use client";
 
-import { supabase } from "./supabase";
+import { ensureSession } from "./supabase";
 
 /// The assistant, from the browser's side.
 ///
@@ -37,9 +37,8 @@ export type Classification = {
 };
 
 async function call<T>(body: Record<string, unknown>): Promise<T> {
-  const { data } = await supabase().auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error("sign in to continue");
+  const token = await ensureSession();
+  if (!token) throw new Error("couldn't reach the assistant — try again");
 
   const res = await fetch("/api/ai", {
     method: "POST",

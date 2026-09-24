@@ -15,6 +15,28 @@ export function supabase(): SupabaseClient {
   return client;
 }
 
+/// A session, creating one if there is none.
+///
+/// Anonymous sign-in is how this app has a session at all, and `ensureSender`
+/// only runs it once a wallet is connected. Anything that calls an API before
+/// that — or on a fresh origin, where the previous origin's stored session
+/// does not exist — would otherwise send no token and be told to "sign in",
+/// which is not an instruction anyone can follow: there is no sign-in screen.
+///
+/// Returns null only if sign-in genuinely fails, which the caller surfaces.
+export async function ensureSession(): Promise<string | null> {
+  const sb = supabase();
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) return session.access_token;
+
+  const { data, error } = await sb.auth.signInAnonymously();
+  if (error) {
+    console.error("anonymous sign-in failed:", error.message);
+    return null;
+  }
+  return data.session?.access_token ?? null;
+}
+
 /// Bind a connected wallet to a Supabase session.
 ///
 /// This is anonymous auth, not proof of wallet ownership, and the reason is
@@ -33,48 +55,22 @@ export function supabase(): SupabaseClient {
 /// See README "Sender identity" for the fix once a signing path exists.
 export async function ensureSender(walletAddress: string) {
   const sb = supabase();
+  if (!(await ensureSession())) throw new Error("could not start a session");
 
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) {
-    const { error } = await sb.auth.signInAnonymously();
-    if (error) throw new Error(`sign-in failed: ${error.message}`);
-  }
-
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) throw new Error("no session after sign-in");
-
-  const address = walletAddress.toLowerCase();
-
-  const { data: existing } = await sb
-    .from("senders")
-    .select("id, wallet_address")
-    .eq("auth_user_id", user.id)
-    .maybeSingle();
-
-  if (existing) {
-    // A different wallet in the same browser session. Point the row at it
-    // rather than silently reporting the previous wallet's schedules.
-    if (existing.wallet_address !== address) {
-      const { error } = await sb
-        .from("senders")
-        .update({ wallet_address: address })
-        .eq("id", existing.id);
-      if (error) throw new Error(claimMessage(error.message));
-    }
-    return existing.id as string;
-  }
-
-  const { data, error } = await sb
-    .from("senders")
-    .insert({ auth_user_id: user.id, wallet_address: address })
-    .select("id")
-    .single();
+  // One round trip, and it is the database's job because only it can see rows
+  // this session does not own. A wallet already bound to another anonymous
+  // session — a different origin, cleared storage, a new phone — is re-bound
+  // here rather than colliding with the unique constraint and stranding the
+  // app with no sender row. See the 20260924 migration for what that trades.
+  const { data, error } = await sb.rpc("claim_sender", {
+    p_wallet: walletAddress.toLowerCase(),
+  });
   if (error) throw new Error(claimMessage(error.message));
-  return data.id as string;
+  return data as string;
 }
 
 function claimMessage(msg: string): string {
-  return /duplicate key|unique/i.test(msg)
-    ? "This wallet is already registered in another session. Open Remesso in the browser you first used it in, or contact support."
+  return /not signed in/i.test(msg)
+    ? "Couldn't start a session. Check your connection and reopen Remesso."
     : msg;
 }

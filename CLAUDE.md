@@ -352,7 +352,12 @@ every sender re-authorising, so it is a deliberate decision, not a default.
   supported; their docs' network list is an abbreviated example.
 - **Sender identity is a claim, not a proof.** MiniPay cannot sign messages, so
   SIWE is unavailable and wallets bind to an anonymous Supabase session. The
-  money path is unaffected — the contract checks `msg.sender`.
+  money path is unaffected — the contract checks `msg.sender`. Since 2026-09-24
+  the claim is **last-writer-wins** (`claim_sender`): a new origin or cleared
+  storage means a new anonymous user, and first-come-and-permanent left the app
+  with no sender row and a "sign in" message naming a screen that does not
+  exist. Re-claiming grants a view of a schedule list, never the ability to
+  move money.
 - The contract is **live on mainnet and unaudited.** No schedule has ever run.
 
 ## Conventions
